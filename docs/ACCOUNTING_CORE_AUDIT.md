@@ -101,3 +101,13 @@ The following implementation and verification supersede earlier statements in th
 The installer may be used for controlled development testing only. Do not migrate active client books into it or rely on its preliminary P&L / Balance Sheet for statutory reporting. The app is still single-company, the migration marker is not yet a complete migration framework, opening balances do not have a balanced import/finalisation workflow, and accounting reports need independent expected-result reconciliation. Voucher lifecycle/audit, restore, GST workflows, TDS workflows, inventory, bank reconciliation and role/access controls remain release blockers.
 
 The successful build is evidence that the current application compiles and packages on the Windows CI runner. It is not evidence that all accounting, tax or statutory scenarios have been validated.
+
+
+## Multi-company workspace update — 7 November 2026
+
+- Added a separate local registry database (ns_accounts_registry.db) that maps company IDs to company database filenames and stores the active company ID.
+- Each company has a separate SQLite database file. The existing ns_accounts.db is registered as the first/default company and stays at its original path.
+- Added create/list/switch company commands and a company selector / company creation screen.
+- Added a regression test that creates a legacy company database, confirms that it is registered as the first company, switches the active registry entry to a second company, and confirms that the second company resolves to a different database file while the original file remains present.
+- The Windows CI workflow for code SHA 0a03dc8374832002d5fc867043372e4cced2686f passed frontend production build, Rust unit tests, MSI packaging and artifact upload.
+- This is a local multi-company isolation foundation, not a full branch/group/financial-year architecture. Company deletion, company archive/export, per-company backup catalog, restore and full migration management remain outstanding. Do not copy or manually rename company database files while the app is running.
