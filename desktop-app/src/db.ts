@@ -23,3 +23,5 @@ export const getProfitLoss=(fromDate:string,toDate:string)=>invoke<GroupBalance[
 export const getBalanceSheet=(asOf:string)=>invoke<GroupBalance[]>("balance_sheet",{asOf});
 export const postVoucher=(input:NewVoucher)=>invoke<string>("post_voucher",{input});
 export const createLedger=(input:{name:string;groupName:string;openingBalance:number;balanceType:"Dr"|"Cr"})=>invoke<number>("create_ledger",{input});
+
+export const createBackup=()=>invoke<string>("create_backup");

@@ -1,6 +1,6 @@
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{backup::Backup, params, Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize)]
@@ -125,13 +125,50 @@ fn opening_balance_status(app:AppHandle)->Result<OpeningBalanceStatus,String>{
 #[tauri::command] fn ledger_statement(app:AppHandle,ledger_id:i64,from_date:String,to_date:String)->Result<Vec<StatementRow>,String>{if !valid_date_range(&from_date,&to_date){return Err("Enter a valid statement date range.".into())}let c=open_db(&app)?;initialize(&c)?;let opening:i64=c.query_row("SELECT (CASE WHEN balance_type='Dr' THEN opening_balance ELSE -opening_balance END)+COALESCE((SELECT SUM(vl.debit-vl.credit) FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id WHERE vl.ledger_id=?1 AND v.voucher_date<?2),0) FROM ledgers WHERE id=?1",params![ledger_id,from_date],|r|r.get(0)).map_err(|e|e.to_string())?;let mut stmt=c.prepare("SELECT v.id,v.voucher_no,v.voucher_type,v.voucher_date,v.narration,vl.debit,vl.credit FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id WHERE vl.ledger_id=?1 AND v.voucher_date BETWEEN ?2 AND ?3 ORDER BY v.voucher_date,v.id").map_err(|e|e.to_string())?;let rows=stmt.query_map(params![ledger_id,from_date,to_date],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,i64>(5)?,r.get::<_,i64>(6)?))).map_err(|e|e.to_string())?;let mut balance=opening;let mut result=Vec::new();for row in rows{let(id,no,kind,date,narration,dr,cr)=row.map_err(|e|e.to_string())?;balance+=dr-cr;result.push(StatementRow{voucher_id:id,voucher_no:no,voucher_type:kind,voucher_date:date,narration,debit:dr,credit:cr,running_balance:balance});}Ok(result)}
 #[tauri::command] fn profit_loss(app:AppHandle,from_date:String,to_date:String)->Result<Vec<GroupBalance>,String>{if !valid_iso_date(&from_date)||!valid_iso_date(&to_date)||from_date>to_date{return Err("Enter a valid Profit & Loss date range.".into())}let c=open_db(&app)?;initialize(&c)?;let mut s=c.prepare("SELECT l.group_name,SUM(vl.debit-vl.credit) FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id JOIN ledgers l ON l.id=vl.ledger_id WHERE v.voucher_date BETWEEN ?1 AND ?2 AND l.group_name IN ('Sales Accounts','Purchase Accounts','Direct Expenses','Indirect Expenses','Direct Incomes','Indirect Incomes') GROUP BY l.group_name ORDER BY l.group_name").map_err(|e|e.to_string())?;let rows=s.query_map(params![from_date,to_date],|r|Ok(GroupBalance{group_name:r.get(0)?,amount:r.get(1)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn balance_sheet(app:AppHandle,as_of:String)->Result<Vec<GroupBalance>,String>{if !valid_iso_date(&as_of){return Err("Enter a valid Balance Sheet date.".into())}let c=open_db(&app)?;initialize(&c)?;let mut s=c.prepare("SELECT l.group_name,SUM((CASE WHEN l.balance_type='Dr' THEN l.opening_balance ELSE -l.opening_balance END)+COALESCE(x.net,0)) FROM ledgers l LEFT JOIN (SELECT vl.ledger_id,SUM(vl.debit-vl.credit) net FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id WHERE v.voucher_date<=?1 GROUP BY vl.ledger_id) x ON x.ledger_id=l.id WHERE l.group_name NOT IN ('Sales Accounts','Purchase Accounts','Direct Expenses','Indirect Expenses','Direct Incomes','Indirect Incomes') GROUP BY l.group_name ORDER BY l.group_name").map_err(|e|e.to_string())?;let rows=s.query_map(params![as_of],|r|Ok(GroupBalance{group_name:r.get(0)?,amount:r.get(1)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
+
+#[tauri::command]
+fn create_backup(app:AppHandle)->Result<String,String>{
+ let source_path=database_path(&app)?;
+ if !source_path.exists(){return Err("The company database has not been created yet.".into())}
+ let source=Connection::open(&source_path).map_err(|e|format!("Could not open company database: {e}"))?;
+ let backup_dir=app.path().app_data_dir().map_err(|e|e.to_string())?.join("backups");
+ fs::create_dir_all(&backup_dir).map_err(|e|format!("Could not create backup folder: {e}"))?;
+ let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+ let backup_path=backup_dir.join(format!("ns_accounts_backup_{stamp}.sqlite"));
+ let mut destination=Connection::open(&backup_path).map_err(|e|format!("Could not create backup file: {e}"))?;
+ {
+  let backup=Backup::new(&source,&mut destination).map_err(|e|format!("Could not start SQLite backup: {e}"))?;
+  backup.run_to_completion(128,Duration::from_millis(50),None).map_err(|e|format!("SQLite backup did not complete: {e}"))?;
+ }
+ let integrity:String=destination.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|format!("Could not verify backup: {e}"))?;
+ if integrity!="ok"{
+  drop(destination);
+  let _=fs::remove_file(&backup_path);
+  return Err(format!("Backup integrity check failed: {integrity}"));
+ }
+ Ok(backup_path.to_string_lossy().into_owned())
+}
+
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
+pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
 
 #[cfg(test)]
 mod accounting_validation_tests {
  use super::*;
  fn e(ledger_id:i64,debit:i64,credit:i64)->VoucherEntry{VoucherEntry{ledger_id,debit,credit}}
+ #[test] fn sqlite_backup_api_creates_a_consistent_copy(){
+  let source=Connection::open_in_memory().unwrap();
+  source.execute_batch("CREATE TABLE sample(id INTEGER PRIMARY KEY,value TEXT NOT NULL); INSERT INTO sample(value) VALUES('NS Accounts');").unwrap();
+  let mut target=Connection::open_in_memory().unwrap();
+  {
+   let backup=Backup::new(&source,&mut target).unwrap();
+   backup.run_to_completion(16,Duration::from_millis(1),None).unwrap();
+  }
+  let value:String=target.query_row("SELECT value FROM sample WHERE id=1",[],|r|r.get(0)).unwrap();
+  let integrity:String=target.query_row("PRAGMA integrity_check",[],|r|r.get(0)).unwrap();
+  assert_eq!(value,"NS Accounts");
+  assert_eq!(integrity,"ok");
+ }
  #[test] fn accepts_balanced_journal(){assert!(validate_voucher_input("Journal","2026-11-07",&[e(1,10000,0),e(2,0,10000)]).is_ok());}
  #[test] fn ignores_completely_blank_trailing_row(){let r=validate_voucher_input("Journal","2026-11-07",&[e(1,10000,0),e(2,0,10000),e(0,0,0)]).unwrap();assert_eq!(r.len(),2);}
  #[test] fn rejects_partially_completed_blank_row(){assert!(validate_voucher_input("Journal","2026-11-07",&[e(1,10000,0),e(0,0,10000)]).is_err());}
