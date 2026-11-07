@@ -1,6 +1,6 @@
 use rusqlite::{backup::Backup, params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize)]
@@ -69,8 +69,8 @@ fn validate_voucher_input(kind:&str,date:&str,entries:&[VoucherEntry])->Result<V
 fn valid_date_range(start:&str,end:&str)->bool { valid_iso_date(start) && valid_iso_date(end) && start<=end }
 
 fn app_data_dir(app:&AppHandle)->Result<PathBuf,String>{let dir=app.path().app_data_dir().map_err(|e|e.to_string())?;fs::create_dir_all(&dir).map_err(|e|e.to_string())?;Ok(dir)}
-fn registry_connection(app:&AppHandle)->Result<Connection,String>{
- let dir=app_data_dir(app)?;
+fn registry_connection_in(dir:&Path)->Result<Connection,String>{
+ fs::create_dir_all(dir).map_err(|e|e.to_string())?;
  let registry=Connection::open(dir.join("ns_accounts_registry.db")).map_err(|e|e.to_string())?;
  registry.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS companies(id TEXT PRIMARY KEY,name TEXT NOT NULL COLLATE NOCASE,db_file TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS app_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);").map_err(|e|e.to_string())?;
  let count:i64=registry.query_row("SELECT COUNT(*) FROM companies",[],|r|r.get(0)).map_err(|e|e.to_string())?;
@@ -82,14 +82,16 @@ fn registry_connection(app:&AppHandle)->Result<Connection,String>{
  }
  Ok(registry)
 }
-fn database_path(app:&AppHandle)->Result<PathBuf,String>{
- let dir=app_data_dir(app)?;let registry=registry_connection(app)?;
+fn registry_connection(app:&AppHandle)->Result<Connection,String>{let dir=app_data_dir(app)?;registry_connection_in(&dir)}
+fn database_path_in(dir:&Path)->Result<PathBuf,String>{
+ let registry=registry_connection_in(dir)?;
  let active:String=registry.query_row("SELECT value FROM app_state WHERE key='active_company_id'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"default".to_string());
  let filename:Option<String>=registry.query_row("SELECT db_file FROM companies WHERE id=?1",params![active],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
  let filename=filename.unwrap_or_else(||"ns_accounts.db".to_string());
  if PathBuf::from(&filename).file_name().and_then(|n|n.to_str())!=Some(filename.as_str()){return Err("Invalid company database registration.".into())}
  Ok(dir.join(filename))
 }
+fn database_path(app:&AppHandle)->Result<PathBuf,String>{let dir=app_data_dir(app)?;database_path_in(&dir)}
 fn open_db(app:&AppHandle)->Result<Connection,String>{let conn=Connection::open(database_path(app)?).map_err(|e|e.to_string())?;conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;").map_err(|e|e.to_string())?;Ok(conn)}
 fn initialize(conn:&Connection)->Result<(),String>{
  conn.execute_batch(r#"
@@ -214,6 +216,23 @@ pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![i
 mod accounting_validation_tests {
  use super::*;
  fn e(ledger_id:i64,debit:i64,credit:i64)->VoucherEntry{VoucherEntry{ledger_id,debit,credit}}
+ #[test] fn company_registry_preserves_existing_database_and_separates_new_company_files(){
+  let stamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+  let dir=std::env::temp_dir().join(format!("ns_accounts_registry_test_{stamp}"));
+  fs::create_dir_all(&dir).unwrap();
+  let legacy=Connection::open(dir.join("ns_accounts.db")).unwrap();
+  legacy.execute_batch("CREATE TABLE company_settings(id INTEGER PRIMARY KEY,name TEXT NOT NULL); INSERT INTO company_settings(id,name) VALUES(1,'Legacy Company');").unwrap();
+  drop(legacy);
+  let registry=registry_connection_in(&dir).unwrap();
+  let registered:(String,String)=registry.query_row("SELECT name,db_file FROM companies WHERE id='default'",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+  assert_eq!(registered,("Legacy Company".to_string(),"ns_accounts.db".to_string()));
+  assert_eq!(database_path_in(&dir).unwrap(),dir.join("ns_accounts.db"));
+  registry.execute("INSERT INTO companies(id,name,db_file) VALUES('other','Other Company','company_other.sqlite')",[]).unwrap();
+  registry.execute("UPDATE app_state SET value='other' WHERE key='active_company_id'",[]).unwrap();
+  assert_eq!(database_path_in(&dir).unwrap(),dir.join("company_other.sqlite"));
+  assert!(dir.join("ns_accounts.db").exists());
+  let _=fs::remove_dir_all(&dir);
+ }
  #[test] fn fresh_database_has_a_versioned_zero_balance_chart(){
   let conn=Connection::open_in_memory().unwrap();
   initialize(&conn).unwrap();
