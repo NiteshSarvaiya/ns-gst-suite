@@ -234,16 +234,14 @@ fn list_gst_sales_invoices(app:AppHandle)->Result<Vec<GstSalesInvoiceSummary>,St
  let rows=stmt.query_map([],|r|Ok(GstSalesInvoiceSummary{id:r.get(0)?,invoice_no:r.get(1)?,invoice_date:r.get(2)?,party_name:r.get(3)?,party_gstin:r.get(4)?,place_of_supply_state:r.get(5)?,supply_type:r.get(6)?,taxable_total:r.get(7)?,cgst_total:r.get(8)?,sgst_total:r.get(9)?,igst_total:r.get(10)?,cess_total:r.get(11)?,invoice_total:r.get(12)?,voucher_id:r.get(13)?})).map_err(|e|e.to_string())?;
  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
 }
-#[tauri::command]
-fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstSalesInvoiceSummary,String>{
+
+fn post_gst_sales_invoice_tx(tx:&Transaction,input:NewGstSalesInvoice,company:(String,String,String))->Result<GstSalesInvoiceSummary,String>{
  if !valid_iso_date(&input.invoice_date){return Err("Enter a valid invoice date.".into())}
  if input.lines.is_empty()||input.lines.len()>100{return Err("An invoice must contain between 1 and 100 item lines.".into())}
  let buyer_gstin=input.party_gstin.trim().to_ascii_uppercase();
  if !buyer_gstin.is_empty()&&!validate_gstin(&buyer_gstin){return Err("Buyer GSTIN must contain 15 alphanumeric characters and begin with a two-digit state code.".into())}
  let place=input.place_of_supply_state.trim();
  if place.is_empty(){return Err("Place of supply is required.".into())}
- let mut conn=open_db(&app)?;initialize(&conn)?;
- let company:(String,String,String)=conn.query_row("SELECT financial_year_start,financial_year_end,state FROM company_settings WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|e|e.to_string())?;
  if input.invoice_date<company.0||input.invoice_date>company.1{return Err(format!("Invoice date must fall within the company's financial year ({} to {}).",company.0,company.1))}
  if company.2.trim().is_empty(){return Err("Set the supplier's state in Company Settings before creating GST invoices.".into())}
  let interstate=normalized_state(&company.2)!=normalized_state(place);
@@ -263,13 +261,12 @@ fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstS
   calculations.push(calc);
  }
  if invoice_total<=0{return Err("Invoice total must be greater than zero.".into())}
- let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
  let party_name:String=tx.query_row("SELECT name FROM ledgers WHERE id=?1 AND group_name='Sundry Debtors'",params![input.party_ledger_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or("Select a customer ledger under Sundry Debtors.")?;
- let sales_id=ledger_id_by_name(&tx,"Sales")?;
- let cgst_id=if cgst_total>0{Some(ledger_id_by_name(&tx,"Output CGST")?)}else{None};
- let sgst_id=if sgst_total>0{Some(ledger_id_by_name(&tx,"Output SGST")?)}else{None};
- let igst_id=if igst_total>0{Some(ledger_id_by_name(&tx,"Output IGST")?)}else{None};
- let cess_id=if cess_total>0{Some(ledger_id_by_name(&tx,"Output Cess")?)}else{None};
+ let sales_id=ledger_id_by_name(tx,"Sales")?;
+ let cgst_id=if cgst_total>0{Some(ledger_id_by_name(tx,"Output CGST")?)}else{None};
+ let sgst_id=if sgst_total>0{Some(ledger_id_by_name(tx,"Output SGST")?)}else{None};
+ let igst_id=if igst_total>0{Some(ledger_id_by_name(tx,"Output IGST")?)}else{None};
+ let cess_id=if cess_total>0{Some(ledger_id_by_name(tx,"Output Cess")?)}else{None};
  let mut entries=vec![VoucherEntry{ledger_id:input.party_ledger_id,debit:invoice_total,credit:0},VoucherEntry{ledger_id:sales_id,debit:0,credit:taxable_total}];
  if let Some(id)=cgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cgst_total})}
  if let Some(id)=sgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:sgst_total})}
@@ -290,10 +287,17 @@ fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstS
  for (index,(line,calc)) in input.lines.iter().zip(calculations.iter()).enumerate(){
   tx.execute("INSERT INTO gst_sales_invoice_lines(invoice_id,line_no,description,hsn_sac,quantity_milli,unit_price_paise,discount_paise,gst_rate_bps,cess_rate_bps,taxable_value,cgst,sgst,igst,cess,line_total) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![invoice_id,(index+1) as i64,line.description.trim(),line.hsn_sac.trim(),line.quantity_milli,line.unit_price_paise,line.discount_paise,line.gst_rate_bps,line.cess_rate_bps,calc.taxable_value,calc.cgst,calc.sgst,calc.igst,calc.cess,calc.line_total]).map_err(|e|e.to_string())?;
  }
- tx.commit().map_err(|e|e.to_string())?;
  Ok(GstSalesInvoiceSummary{id:invoice_id,invoice_no,invoice_date:input.invoice_date,party_name,party_gstin:buyer_gstin,place_of_supply_state:place.to_string(),supply_type:supply_type.to_string(),taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id})
 }
-
+#[tauri::command]
+fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstSalesInvoiceSummary,String>{
+ let mut conn=open_db(&app)?;initialize(&conn)?;
+ let company:(String,String,String)=conn.query_row("SELECT financial_year_start,financial_year_end,state FROM company_settings WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|e|e.to_string())?;
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+ let invoice=post_gst_sales_invoice_tx(&tx,input,company)?;
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(invoice)
+}
 #[tauri::command]
 fn create_backup(app:AppHandle)->Result<String,String>{
  let source_path=database_path(&app)?;
@@ -324,6 +328,32 @@ pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![i
 mod accounting_validation_tests {
  use super::*;
  fn e(ledger_id:i64,debit:i64,credit:i64)->VoucherEntry{VoucherEntry{ledger_id,debit,credit}}
+ #[test] fn gst_sales_invoice_posts_balanced_voucher_and_tax_ledgers(){
+  let mut conn=Connection::open_in_memory().unwrap();
+  initialize(&conn).unwrap();
+  conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES('Customer A','Sundry Debtors',0,'Dr')",[]).unwrap();
+  let party:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Customer A'",[],|r|r.get(0)).unwrap();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  let input=NewGstSalesInvoice{invoice_date:"2026-11-07".into(),party_ledger_id:party,party_gstin:"".into(),place_of_supply_state:"Gujarat".into(),lines:vec![GstInvoiceLineInput{description:"Consulting service".into(),hsn_sac:"9983".into(),quantity_milli:1000,unit_price_paise:100000,discount_paise:0,gst_rate_bps:1800,cess_rate_bps:0}]};
+  let invoice=post_gst_sales_invoice_tx(&tx,input,("2026-04-01".into(),"2027-03-31".into(),"Gujarat".into())).unwrap();
+  tx.commit().unwrap();
+  assert_eq!((invoice.taxable_total,invoice.cgst_total,invoice.sgst_total,invoice.igst_total,invoice.invoice_total),(100000,9000,9000,0,118000));
+  let totals:(i64,i64)=conn.query_row("SELECT SUM(debit),SUM(credit) FROM voucher_lines WHERE voucher_id=?1",params![invoice.voucher_id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+  assert_eq!(totals,(118000,118000));
+  let kind:String=conn.query_row("SELECT voucher_type FROM vouchers WHERE id=?1",params![invoice.voucher_id],|r|r.get(0)).unwrap();
+  assert_eq!(kind,"Sales");
+ }
+ #[test] fn gst_sales_invoice_rejects_inter_financial_year_dates_without_posting(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES('Customer B','Sundry Debtors',0,'Dr')",[]).unwrap();
+  let party:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Customer B'",[],|r|r.get(0)).unwrap();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  let input=NewGstSalesInvoice{invoice_date:"2025-03-31".into(),party_ledger_id:party,party_gstin:"".into(),place_of_supply_state:"Gujarat".into(),lines:vec![GstInvoiceLineInput{description:"Service".into(),hsn_sac:"9983".into(),quantity_milli:1000,unit_price_paise:100000,discount_paise:0,gst_rate_bps:1800,cess_rate_bps:0}]};
+  assert!(post_gst_sales_invoice_tx(&tx,input,("2026-04-01".into(),"2027-03-31".into(),"Gujarat".into())).is_err());
+  drop(tx);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();
+  assert_eq!(count,0);
+ }
  #[test] fn initialization_installs_gst_sales_invoice_schema(){
   let conn=Connection::open_in_memory().unwrap();
   initialize(&conn).unwrap();
