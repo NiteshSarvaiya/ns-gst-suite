@@ -11,7 +11,12 @@ export type CompanySummary={id:string;name:string;isActive:boolean};
 export type CompanyInfo={name:string;financialYearStart:string;financialYearEnd:string;state:string;gstin:string};
 export type StatementRow={voucherId:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;debit:number;credit:number;runningBalance:number};
 export type GroupBalance={groupName:string;amount:number};
+export type GstSalesInvoice={id:number;invoiceNo:string;invoiceDate:string;partyName:string;partyGstin:string;placeOfSupplyState:string;supplyType:string;taxableTotal:number;cgstTotal:number;sgstTotal:number;igstTotal:number;cessTotal:number;invoiceTotal:number;voucherId:number};
+export type GstInvoiceLineInput={description:string;hsnSac:string;quantityMilli:number;unitPricePaise:number;discountPaise:number;gstRateBps:number;cessRateBps:number};
+export type NewGstSalesInvoice={invoiceDate:string;partyLedgerId:number;partyGstin:string;placeOfSupplyState:string;lines:GstInvoiceLineInput[]};
 export async function connectDb(){await invoke("init_db");}
+export const getGstSalesInvoices=()=>invoke<GstSalesInvoice[]>("list_gst_sales_invoices");
+export const createGstSalesInvoice=(input:NewGstSalesInvoice)=>invoke<GstSalesInvoice>("create_gst_sales_invoice",{input});
 export const getCompanies=()=>invoke<CompanySummary[]>("list_companies");
 export const switchCompany=(companyId:string)=>invoke<void>("switch_company",{companyId});
 export const createCompany=(name:string)=>invoke<string>("create_company",{name});

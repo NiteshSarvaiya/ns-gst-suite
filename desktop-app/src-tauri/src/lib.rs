@@ -1,4 +1,5 @@
-use rusqlite::{backup::Backup, params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{backup::Backup, params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+mod gst;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager};
@@ -36,6 +37,16 @@ struct NewLedger { name:String, group_name:String, opening_balance:i64, balance_
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VoucherEntry { ledger_id:i64, debit:i64, credit:i64 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GstInvoiceLineInput { description:String, hsn_sac:String, quantity_milli:i64, unit_price_paise:i64, discount_paise:i64, gst_rate_bps:i64, cess_rate_bps:i64 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewGstSalesInvoice { invoice_date:String, party_ledger_id:i64, party_gstin:String, place_of_supply_state:String, lines:Vec<GstInvoiceLineInput> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GstSalesInvoiceSummary { id:i64, invoice_no:String, invoice_date:String, party_name:String, party_gstin:String, place_of_supply_state:String, supply_type:String, taxable_total:i64, cgst_total:i64, sgst_total:i64, igst_total:i64, cess_total:i64, invoice_total:i64, voucher_id:i64 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NewVoucher { voucher_type:String, voucher_date:String, narration:String, entries:Vec<VoucherEntry> }
@@ -51,7 +62,7 @@ fn valid_iso_date(value:&str)->bool {
  (1..=days).contains(&d)
 }
 fn validate_voucher_input(kind:&str,date:&str,entries:&[VoucherEntry])->Result<Vec<VoucherEntry>,String>{
- if !["Contra","Payment","Receipt","Journal"].contains(&kind){return Err("Unsupported voucher type.".into());}
+ if !["Contra","Payment","Receipt","Journal","Sales"].contains(&kind){return Err("Unsupported voucher type.".into());}
  if !valid_iso_date(date){return Err("Enter a valid calendar date in YYYY-MM-DD format.".into());}
  let mut clean=Vec::new(); let(mut debit,mut credit)=(0_i64,0_i64);
  for line in entries {
@@ -97,11 +108,31 @@ fn initialize(conn:&Connection)->Result<(),String>{
  conn.execute_batch(r#"
  CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,description TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
  INSERT OR IGNORE INTO schema_migrations(version,description) VALUES(1,'Initial accounting database schema');
+ INSERT OR IGNORE INTO schema_migrations(version,description) VALUES(2,'GST sales invoice documents and accounting links');
  CREATE TABLE IF NOT EXISTS ledgers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL COLLATE NOCASE UNIQUE,group_name TEXT NOT NULL,opening_balance INTEGER NOT NULL DEFAULT 0 CHECK(opening_balance>=0),balance_type TEXT NOT NULL CHECK(balance_type IN ('Dr','Cr')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS vouchers(id INTEGER PRIMARY KEY AUTOINCREMENT,voucher_no TEXT NOT NULL UNIQUE,voucher_type TEXT NOT NULL,voucher_date TEXT NOT NULL,narration TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL CHECK(total>0),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS voucher_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,voucher_id INTEGER NOT NULL REFERENCES vouchers(id),ledger_id INTEGER NOT NULL REFERENCES ledgers(id),debit INTEGER NOT NULL DEFAULT 0 CHECK(debit>=0),credit INTEGER NOT NULL DEFAULT 0 CHECK(credit>=0),CHECK((debit>0 AND credit=0) OR (credit>0 AND debit=0)));
  CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(voucher_date,id);
  CREATE INDEX IF NOT EXISTS idx_lines_ledger ON voucher_lines(ledger_id);
+ CREATE TABLE IF NOT EXISTS gst_sales_invoices(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_no TEXT NOT NULL UNIQUE,invoice_date TEXT NOT NULL,
+  party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id),party_name TEXT NOT NULL,party_gstin TEXT NOT NULL DEFAULT '',
+  place_of_supply_state TEXT NOT NULL,supply_type TEXT NOT NULL CHECK(supply_type IN ('Intra-State','Inter-State')),
+  taxable_total INTEGER NOT NULL CHECK(taxable_total>=0),cgst_total INTEGER NOT NULL CHECK(cgst_total>=0),
+  sgst_total INTEGER NOT NULL CHECK(sgst_total>=0),igst_total INTEGER NOT NULL CHECK(igst_total>=0),
+  cess_total INTEGER NOT NULL CHECK(cess_total>=0),invoice_total INTEGER NOT NULL CHECK(invoice_total>0),
+  voucher_id INTEGER NOT NULL UNIQUE REFERENCES vouchers(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+ );
+ CREATE INDEX IF NOT EXISTS idx_gst_sales_invoice_date ON gst_sales_invoices(invoice_date,id);
+ CREATE TABLE IF NOT EXISTS gst_sales_invoice_lines(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL REFERENCES gst_sales_invoices(id) ON DELETE RESTRICT,
+  line_no INTEGER NOT NULL,description TEXT NOT NULL,hsn_sac TEXT NOT NULL,quantity_milli INTEGER NOT NULL CHECK(quantity_milli>0),
+  unit_price_paise INTEGER NOT NULL CHECK(unit_price_paise>0),discount_paise INTEGER NOT NULL CHECK(discount_paise>=0),
+  gst_rate_bps INTEGER NOT NULL CHECK(gst_rate_bps>=0),cess_rate_bps INTEGER NOT NULL CHECK(cess_rate_bps>=0),
+  taxable_value INTEGER NOT NULL CHECK(taxable_value>=0),cgst INTEGER NOT NULL CHECK(cgst>=0),sgst INTEGER NOT NULL CHECK(sgst>=0),
+  igst INTEGER NOT NULL CHECK(igst>=0),cess INTEGER NOT NULL CHECK(cess>=0),line_total INTEGER NOT NULL CHECK(line_total>0),
+  UNIQUE(invoice_id,line_no)
+ );
  CREATE TABLE IF NOT EXISTS company_settings(id INTEGER PRIMARY KEY CHECK(id=1),name TEXT NOT NULL,financial_year_start TEXT NOT NULL,financial_year_end TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'Gujarat',gstin TEXT NOT NULL DEFAULT '');
  INSERT OR IGNORE INTO company_settings(id,name,financial_year_start,financial_year_end,state,gstin) VALUES(1,'My Company','2026-04-01','2027-03-31','Gujarat','');
  "#).map_err(|e|e.to_string())?;
@@ -186,6 +217,79 @@ fn opening_balance_status(app:AppHandle)->Result<OpeningBalanceStatus,String>{
 #[tauri::command] fn profit_loss(app:AppHandle,from_date:String,to_date:String)->Result<Vec<GroupBalance>,String>{if !valid_iso_date(&from_date)||!valid_iso_date(&to_date)||from_date>to_date{return Err("Enter a valid Profit & Loss date range.".into())}let c=open_db(&app)?;initialize(&c)?;let mut s=c.prepare("SELECT l.group_name,SUM(vl.debit-vl.credit) FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id JOIN ledgers l ON l.id=vl.ledger_id WHERE v.voucher_date BETWEEN ?1 AND ?2 AND l.group_name IN ('Sales Accounts','Purchase Accounts','Direct Expenses','Indirect Expenses','Direct Incomes','Indirect Incomes') GROUP BY l.group_name ORDER BY l.group_name").map_err(|e|e.to_string())?;let rows=s.query_map(params![from_date,to_date],|r|Ok(GroupBalance{group_name:r.get(0)?,amount:r.get(1)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn balance_sheet(app:AppHandle,as_of:String)->Result<Vec<GroupBalance>,String>{if !valid_iso_date(&as_of){return Err("Enter a valid Balance Sheet date.".into())}let c=open_db(&app)?;initialize(&c)?;let mut s=c.prepare("SELECT l.group_name,SUM((CASE WHEN l.balance_type='Dr' THEN l.opening_balance ELSE -l.opening_balance END)+COALESCE(x.net,0)) FROM ledgers l LEFT JOIN (SELECT vl.ledger_id,SUM(vl.debit-vl.credit) net FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id WHERE v.voucher_date<=?1 GROUP BY vl.ledger_id) x ON x.ledger_id=l.id WHERE l.group_name NOT IN ('Sales Accounts','Purchase Accounts','Direct Expenses','Indirect Expenses','Direct Incomes','Indirect Incomes') GROUP BY l.group_name ORDER BY l.group_name").map_err(|e|e.to_string())?;let rows=s.query_map(params![as_of],|r|Ok(GroupBalance{group_name:r.get(0)?,amount:r.get(1)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 
+
+fn normalized_state(value:&str)->String{value.chars().filter(|c|!c.is_whitespace()).flat_map(char::to_lowercase).collect()}
+fn validate_gstin(value:&str)->bool{
+ let v=value.trim().to_ascii_uppercase();
+ v.len()==15 && v.chars().take(2).all(|c|c.is_ascii_digit()) && v.chars().all(|c|c.is_ascii_alphanumeric())
+}
+#[tauri::command]
+fn list_gst_sales_invoices(app:AppHandle)->Result<Vec<GstSalesInvoiceSummary>,String>{
+ let conn=open_db(&app)?;initialize(&conn)?;
+ let mut stmt=conn.prepare("SELECT id,invoice_no,invoice_date,party_name,party_gstin,place_of_supply_state,supply_type,taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id FROM gst_sales_invoices ORDER BY invoice_date DESC,id DESC").map_err(|e|e.to_string())?;
+ let rows=stmt.query_map([],|r|Ok(GstSalesInvoiceSummary{id:r.get(0)?,invoice_no:r.get(1)?,invoice_date:r.get(2)?,party_name:r.get(3)?,party_gstin:r.get(4)?,place_of_supply_state:r.get(5)?,supply_type:r.get(6)?,taxable_total:r.get(7)?,cgst_total:r.get(8)?,sgst_total:r.get(9)?,igst_total:r.get(10)?,cess_total:r.get(11)?,invoice_total:r.get(12)?,voucher_id:r.get(13)?})).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
+#[tauri::command]
+fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstSalesInvoiceSummary,String>{
+ if !valid_iso_date(&input.invoice_date){return Err("Enter a valid invoice date.".into())}
+ if input.lines.is_empty()||input.lines.len()>100{return Err("An invoice must contain between 1 and 100 item lines.".into())}
+ let buyer_gstin=input.party_gstin.trim().to_ascii_uppercase();
+ if !buyer_gstin.is_empty()&&!validate_gstin(&buyer_gstin){return Err("Buyer GSTIN must contain 15 alphanumeric characters and begin with a two-digit state code.".into())}
+ let place=input.place_of_supply_state.trim();
+ if place.is_empty(){return Err("Place of supply is required.".into())}
+ let mut conn=open_db(&app)?;initialize(&conn)?;
+ let company:(String,String,String)=conn.query_row("SELECT financial_year_start,financial_year_end,state FROM company_settings WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|e|e.to_string())?;
+ if input.invoice_date<company.0||input.invoice_date>company.1{return Err(format!("Invoice date must fall within the company's financial year ({} to {}).",company.0,company.1))}
+ if company.2.trim().is_empty(){return Err("Set the supplier's state in Company Settings before creating GST invoices.".into())}
+ let interstate=normalized_state(&company.2)!=normalized_state(place);
+ let supply_type=if interstate{"Inter-State"}else{"Intra-State"};
+ let mut calculations=Vec::with_capacity(input.lines.len());
+ let(mut taxable_total,mut cgst_total,mut sgst_total,mut igst_total,mut cess_total,mut invoice_total)=(0_i64,0_i64,0_i64,0_i64,0_i64,0_i64);
+ for line in &input.lines{
+  if line.description.trim().is_empty(){return Err("Every invoice line needs an item or service description.".into())}
+  if line.hsn_sac.trim().is_empty(){return Err("Enter an HSN or SAC for every invoice line.".into())}
+  let calc=gst::calculate_line(line.quantity_milli,line.unit_price_paise,line.discount_paise,line.gst_rate_bps,line.cess_rate_bps,interstate)?;
+  taxable_total=taxable_total.checked_add(calc.taxable_value).ok_or("Invoice taxable total overflow.")?;
+  cgst_total=cgst_total.checked_add(calc.cgst).ok_or("Invoice CGST total overflow.")?;
+  sgst_total=sgst_total.checked_add(calc.sgst).ok_or("Invoice SGST total overflow.")?;
+  igst_total=igst_total.checked_add(calc.igst).ok_or("Invoice IGST total overflow.")?;
+  cess_total=cess_total.checked_add(calc.cess).ok_or("Invoice cess total overflow.")?;
+  invoice_total=invoice_total.checked_add(calc.line_total).ok_or("Invoice total overflow.")?;
+  calculations.push(calc);
+ }
+ if invoice_total<=0{return Err("Invoice total must be greater than zero.".into())}
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+ let party_name:String=tx.query_row("SELECT name FROM ledgers WHERE id=?1 AND group_name='Sundry Debtors'",params![input.party_ledger_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or("Select a customer ledger under Sundry Debtors.")?;
+ let find_ledger=|name:&str|->Result<i64,String>{tx.query_row("SELECT id FROM ledgers WHERE name=?1 COLLATE NOCASE",params![name],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or_else(||format!("Required ledger '{name}' is missing. Create or restore it before posting this invoice."))};
+ let sales_id=find_ledger("Sales")?;
+ let cgst_id=if cgst_total>0{Some(find_ledger("Output CGST")?)}else{None};
+ let sgst_id=if sgst_total>0{Some(find_ledger("Output SGST")?)}else{None};
+ let igst_id=if igst_total>0{Some(find_ledger("Output IGST")?)}else{None};
+ let mut entries=vec![VoucherEntry{ledger_id:input.party_ledger_id,debit:invoice_total,credit:0},VoucherEntry{ledger_id:sales_id,debit:0,credit:taxable_total}];
+ if let Some(id)=cgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cgst_total})}
+ if let Some(id)=sgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:sgst_total})}
+ if let Some(id)=igst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:igst_total})}
+ if cess_total>0{return Err("Output Cess ledger is not configured yet. Add the configurable cess ledger before posting cess-bearing invoices.".into())}
+ let entries=validate_voucher_input("Sales",&input.invoice_date,&entries)?;
+ let fy_label=format!("{}-{}",&company.0[0..4],&company.1[2..4]);
+ let invoice_seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM gst_sales_invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let invoice_no=format!("SI/{fy_label}/{invoice_seq:06}");
+ let voucher_seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM vouchers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let voucher_no=format!("VCH/{voucher_seq:06}");
+ let narration=format!("GST Sales Invoice {invoice_no} · {party_name}");
+ tx.execute("INSERT INTO vouchers(voucher_no,voucher_type,voucher_date,narration,total) VALUES(?1,'Sales',?2,?3,?4)",params![voucher_no,input.invoice_date,narration,invoice_total]).map_err(|e|e.to_string())?;
+ let voucher_id=tx.last_insert_rowid();
+ for entry in &entries{tx.execute("INSERT INTO voucher_lines(voucher_id,ledger_id,debit,credit) VALUES(?1,?2,?3,?4)",params![voucher_id,entry.ledger_id,entry.debit,entry.credit]).map_err(|e|e.to_string())?;}
+ tx.execute("INSERT INTO gst_sales_invoices(invoice_no,invoice_date,party_ledger_id,party_name,party_gstin,place_of_supply_state,supply_type,taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![invoice_no,input.invoice_date,input.party_ledger_id,party_name,buyer_gstin,place,supply_type,taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id]).map_err(|e|e.to_string())?;
+ let invoice_id=tx.last_insert_rowid();
+ for (index,(line,calc)) in input.lines.iter().zip(calculations.iter()).enumerate(){
+  tx.execute("INSERT INTO gst_sales_invoice_lines(invoice_id,line_no,description,hsn_sac,quantity_milli,unit_price_paise,discount_paise,gst_rate_bps,cess_rate_bps,taxable_value,cgst,sgst,igst,cess,line_total) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![invoice_id,(index+1) as i64,line.description.trim(),line.hsn_sac.trim(),line.quantity_milli,line.unit_price_paise,line.discount_paise,line.gst_rate_bps,line.cess_rate_bps,calc.taxable_value,calc.cgst,calc.sgst,calc.igst,calc.cess,calc.line_total]).map_err(|e|e.to_string())?;
+ }
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(GstSalesInvoiceSummary{id:invoice_id,invoice_no,invoice_date:input.invoice_date,party_name,party_gstin:buyer_gstin,place_of_supply_state:place.to_string(),supply_type:supply_type.to_string(),taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id})
+}
+
 #[tauri::command]
 fn create_backup(app:AppHandle)->Result<String,String>{
  let source_path=database_path(&app)?;
@@ -210,7 +314,7 @@ fn create_backup(app:AppHandle)->Result<String,String>{
 }
 
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
+pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,list_gst_sales_invoices,create_gst_sales_invoice,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
 
 #[cfg(test)]
 mod accounting_validation_tests {
