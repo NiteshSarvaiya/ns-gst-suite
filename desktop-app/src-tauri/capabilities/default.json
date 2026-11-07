@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capabilities for NS Accounts",
   "windows": ["main"],
-  "permissions": ["core:default", "sql:default"]
+  "permissions": ["core:default"]
 }
