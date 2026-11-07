@@ -83,3 +83,21 @@ The test suite must seed a disposable company and verify both ledger-level movem
 - Company financial-year dates and report date ranges are validated as real calendar dates.
 - The diagnostic does not auto-post a suspense balance or alter existing opening balances. A dedicated opening-balance finalisation/import workflow remains outstanding.
 - These changes are committed; automated CI execution is still pending confirmation.
+
+
+## Release engineering and data protection update — 7 November 2026
+
+The following implementation and verification supersede earlier statements in this audit that said these items had not yet been run or built:
+
+- Added the Windows application icon required by Tauri's Windows resource build.
+- Updated the Windows GitHub Actions workflow to build the frontend, run Rust unit tests, build an x64 Windows MSI, and upload the MSI as a workflow artifact.
+- CI for commit 4aa8d76803020674938802a79d63ba378fe26ed6 completed successfully on the pull-request workflow. The frontend build, Rust unit tests and MSI artifact upload passed. The artifact is a development installer, not a production certification.
+- Added a SQLite online-backup command. It creates a consistent snapshot, verifies the backup using PRAGMA integrity_check, removes a failed backup file, and only reports success when integrity_check returns ok. Backup restore, encryption and off-device scheduling remain outstanding.
+- Added a baseline schema_migrations marker and changed fresh database seed balances to zero. New companies should not inherit fictitious cash, bank or capital opening balances. Existing non-empty ledger tables are not overwritten by the seed logic.
+- Added TDS Payable and TDS Receivable as control ledgers only. This is not a TDS calculation, deduction, challan or return module.
+
+## Current release decision
+
+The installer may be used for controlled development testing only. Do not migrate active client books into it or rely on its preliminary P&L / Balance Sheet for statutory reporting. The app is still single-company, the migration marker is not yet a complete migration framework, opening balances do not have a balanced import/finalisation workflow, and accounting reports need independent expected-result reconciliation. Voucher lifecycle/audit, restore, GST workflows, TDS workflows, inventory, bank reconciliation and role/access controls remain release blockers.
+
+The successful build is evidence that the current application compiles and packages on the Windows CI runner. It is not evidence that all accounting, tax or statutory scenarios have been validated.
