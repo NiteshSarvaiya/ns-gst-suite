@@ -149,3 +149,13 @@ tbody tr:hover{background:#f0f5fa}
 .voucher-screen .voucher-actions .balanced,.voucher-screen .voucher-actions .unbalanced{margin-left:auto}
 .voucher-screen .modal-head{flex:0 0 auto}
 @media(max-width:850px){.voucher-screen .voucher-toolbar{grid-template-columns:1fr 1fr}.voucher-screen .narration-field{grid-column:1/-1}}
+
+/* Searchable ledger selector in voucher grid */
+.ledger-picker{position:relative;width:100%;min-width:0}
+.ledger-picker .ledger-search-input{width:100%;height:36px;min-height:36px;padding:7px 10px;text-align:left;font-size:12px;background:#fff;border:1px solid #bfcbd6;border-radius:2px;color:#1c2b3b}
+.ledger-picker .ledger-search-input:focus{outline:2px solid #d6a84e;outline-offset:-1px;background:#fffdf5;border-color:#ad812e}
+.ledger-picker-list{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:260px;overflow:auto;z-index:80;background:#fff;border:1px solid #aebdca;box-shadow:0 8px 20px #17283a30;border-radius:3px}
+.ledger-option{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 11px;border:0;border-bottom:1px solid #edf0f3;background:#fff;color:#1c2b3b;text-align:left;font-size:12px;cursor:pointer}
+.ledger-option small{color:#718196;font-size:10px;white-space:nowrap}
+.ledger-option.active,.ledger-option:hover{background:#eaf1f7;color:#142b42}
+.ledger-no-results{padding:12px;color:#68788a;font-size:11px}
