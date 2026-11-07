@@ -16,8 +16,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: desktop-app/package-lock.json
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust dependencies
@@ -26,7 +24,7 @@ jobs:
           workspaces: desktop-app/src-tauri
       - name: Install frontend dependencies
         working-directory: desktop-app
-        run: npm ci
+        run: npm install
       - name: Frontend typecheck and production build
         working-directory: desktop-app
         run: npm run build
