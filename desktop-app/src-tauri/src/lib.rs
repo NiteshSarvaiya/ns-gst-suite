@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
@@ -81,7 +81,7 @@ fn initialize(conn:&Connection)->Result<(),String>{
  }
  if debit==0||debit!=credit{return Err("Voucher is not balanced. Total debit must equal total credit.".into())}
  let mut conn=open_db(&app)?;initialize(&conn)?;
- let tx=conn.transaction().map_err(|e|e.to_string())?;
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
  let seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM vouchers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
  let number=format!("VCH/{seq:06}");
  tx.execute("INSERT INTO vouchers(voucher_no,voucher_type,voucher_date,narration,total) VALUES(?1,?2,?3,?4,?5)",params![number,input.voucher_type,input.voucher_date,input.narration.trim(),debit]).map_err(|e|e.to_string())?;
