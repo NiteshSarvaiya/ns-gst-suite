@@ -111,3 +111,13 @@ The successful build is evidence that the current application compiles and packa
 - Added a regression test that creates a legacy company database, confirms that it is registered as the first company, switches the active registry entry to a second company, and confirms that the second company resolves to a different database file while the original file remains present.
 - The Windows CI workflow for code SHA 0a03dc8374832002d5fc867043372e4cced2686f passed frontend production build, Rust unit tests, MSI packaging and artifact upload.
 - This is a local multi-company isolation foundation, not a full branch/group/financial-year architecture. Company deletion, company archive/export, per-company backup catalog, restore and full migration management remain outstanding. Do not copy or manually rename company database files while the app is running.
+
+
+## GST sales invoice vertical slice — 7 November 2026
+
+- Added GST sales invoice header and line tables linked to the customer ledger and the accounting voucher.
+- Added a pure Rust line calculation module using integer paise, quantity in thousandths and percentage rates in basis points. It calculates taxable value after line discount, CGST/SGST for the current intra-state case, IGST for inter-state case, and percentage-based cess.
+- Added a GST Sales register and invoice composer. The company supplier state and place of supply are selected from canonical Indian state/UT names. GST rates and cess rates must be entered explicitly; the UI no longer assumes 18% as the default.
+- Backend re-calculates and validates every line, validates the financial-year date and customer ledger group, then writes the invoice header, invoice lines, and balanced sales voucher in a single SQLite transaction.
+- Automated tests cover intra-state split, inter-state IGST, discount, cess, paise rounding, invalid line input, schema presence, balanced invoice posting and financial-year rejection without leaving a voucher behind.
+- This is not yet a complete statutory GST workflow. The current rate is user-entered and not governed by a versioned statutory rate/HSN master. GSTIN validation is only a basic format check. Purchase/ITC, returns, 2B reconciliation, credit/debit notes, printable tax invoice, e-invoice/e-way bill, RCM/exemption treatment and portal integrations remain outstanding.
