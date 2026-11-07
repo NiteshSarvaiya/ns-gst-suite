@@ -21,3 +21,41 @@ tfoot td{background:#f7f8fa;font-weight:750;color:#27364a;border-top:1px solid #
 
 /* Voucher inspection and keyboard discoverability */
 .voucher-row{cursor:pointer}.voucher-row:hover{background:#f5f8fc}.voucher-link{border:0;background:none;padding:0;color:#9a6b20;font:inherit;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.voucher-detail-modal{width:min(850px,96vw);padding:24px}.detail-subtitle{font-size:11px;color:#7e8998;margin:7px 0 0}.detail-narration{background:#f6f8fa;border:1px solid #edf0f4;border-radius:7px;padding:12px 14px;margin:12px 0 18px}.detail-narration small{font-size:8px;letter-spacing:1px;color:#8994a3;font-weight:700}.detail-narration div{font-size:11px;color:#344054;margin-top:5px}.detail-footer{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #edf0f4;padding-top:15px;margin-top:15px;color:#7d8998;font-size:10px}.voucher-row td{transition:background .12s}
+
+/* Accounting-first workspace refinement */
+:root{font-size:14px}
+.page{max-width:1600px;padding:26px 30px}
+.sidebar{width:230px}
+.nav-item{font-size:12px;padding:10px 11px}
+.panel{border-radius:6px}
+.panel-head{padding:14px 17px}
+th{padding:10px 14px;font-size:9px}
+td{padding:10px 14px;font-size:11px}
+.page-heading{margin-bottom:18px}
+.page h1{font-size:23px}
+.stats{gap:10px;margin-bottom:16px}
+.stat-card{padding:15px;border-radius:6px}
+.stat-card strong{font-size:21px;margin:12px 0 5px}
+.voucher-modal{width:min(1220px,98vw);max-height:96vh;border-radius:7px;padding:18px 22px}
+.voucher-modal .modal-head{background:#17263b;color:#fff;margin:-18px -22px 15px;padding:14px 18px;align-items:center}
+.voucher-modal .modal-head h2{color:#fff;font-size:17px}
+.voucher-modal .modal-head .eyebrow{color:#e3bd76}
+.voucher-modal .close{background:#ffffff1a;color:#fff}
+.voucher-toolbar{grid-template-columns:160px 170px minmax(220px,1fr);gap:10px;margin:12px 0}
+.voucher-toolbar label{font-size:10px}
+.voucher-toolbar input,.voucher-toolbar select,.entry-table select,.entry-table input{border-radius:3px;padding:8px 9px;font-size:12px;min-height:34px}
+.entry-table-wrap{border-radius:4px}
+.entry-table th{padding:10px 12px;background:#eef2f6;color:#536276}
+.entry-table td{padding:5px 7px}
+.entry-table td:first-child{width:52%}
+.entry-table select,.entry-table input{min-width:130px}
+.entry-table select:focus,.entry-table input:focus,.voucher-toolbar input:focus,.voucher-toolbar select:focus{outline:2px solid #d3a64f;outline-offset:0;border-color:#b98b38;background:#fffdf7}
+.voucher-actions{margin-top:12px}
+.shortcut-help{gap:10px 16px;background:#f5f7fa;padding:10px 12px;border-radius:4px;margin-top:12px;color:#5d6b7e}
+.shortcut-help span{white-space:nowrap}
+.voucher-actions .secondary{border-radius:4px}
+.voucher-actions .primary{border-radius:4px;min-width:145px;justify-content:center}
+.voucher-link:focus-visible,.nav-item:focus-visible,button:focus-visible{outline:2px solid #d3a64f;outline-offset:2px}
+.voucher-row:focus-within,.voucher-row:hover{background:#f4f7fb}
+.voucher-detail-modal{border-radius:7px}
+@media(max-width:900px){.sidebar{width:205px}.page{padding:20px 16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
