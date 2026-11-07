@@ -1,14 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
-
 export type Ledger={id:number;name:string;group_name:string;opening_balance:number;balance_type:"Dr"|"Cr"};
 export type Voucher={id:number;voucher_no:string;voucher_type:string;voucher_date:string;narration:string;total:number};
 export type TrialBalanceRow={id:number;name:string;group_name:string;debit:number;credit:number};
 export type Entry={ledgerId:number;debit:number;credit:number};
 export type NewVoucher={voucherType:string;voucherDate:string;narration:string;entries:Entry[]};
-
+export type CompanyInfo={name:string;financialYearStart:string;financialYearEnd:string;state:string;gstin:string};
+export type StatementRow={voucherId:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;debit:number;credit:number;runningBalance:number};
+export type GroupBalance={groupName:string;amount:number};
 export async function connectDb(){await invoke("init_db");}
+export const getCompany=()=>invoke<CompanyInfo>("get_company");
+export const updateCompany=(input:CompanyInfo)=>invoke<void>("update_company",{input});
 export const getLedgers=()=>invoke<Ledger[]>("list_ledgers");
 export const getVouchers=()=>invoke<Voucher[]>("list_vouchers");
 export const getTrialBalance=()=>invoke<TrialBalanceRow[]>("trial_balance");
+export const getLedgerStatement=(ledgerId:number,fromDate:string,toDate:string)=>invoke<StatementRow[]>("ledger_statement",{ledgerId,fromDate,toDate});
+export const getProfitLoss=(fromDate:string,toDate:string)=>invoke<GroupBalance[]>("profit_loss",{fromDate,toDate});
+export const getBalanceSheet=(asOf:string)=>invoke<GroupBalance[]>("balance_sheet",{asOf});
 export const postVoucher=(input:NewVoucher)=>invoke<string>("post_voucher",{input});
 export const createLedger=(input:{name:string;groupName:string;openingBalance:number;balanceType:"Dr"|"Cr"})=>invoke<number>("create_ledger",{input});
