@@ -1,43 +1,25 @@
-# NS Accounts — Desktop V1
+# NS Accounts — V1.1 Keyboard Accounting
 
-Offline-first desktop accounting starter for Indian businesses. This is an independently implemented product; it does not include Tally source code, assets, or proprietary internals.
+Offline-first desktop accounting prototype for Indian businesses.
 
-## Current V1 scope
-- Tauri 2 desktop shell (Windows/macOS/Linux)
-- Local SQLite database through the Tauri SQL plugin
-- Starter chart of accounts
-- Journal/payment/receipt/contra voucher entry with equal debit and credit
-- Voucher register and ledger list
-- Dashboard and navigation
-- Browser preview uses demo-only localStorage; it is not the production data store
+## V1.1
+- Tauri 2 desktop shell, React + TypeScript.
+- Native Rust + rusqlite SQLite data layer in the OS application data directory.
+- Atomic multi-line double-entry voucher posting in a SQLite transaction.
+- Keyboard-first voucher entry: F2 date, F4 contra, F5 payment, F6 receipt, F7 journal, Ctrl+Enter post, Esc close.
+- Ledger creation with opening balances, voucher register and trial balance.
+- Values stored as integer paise.
 
-## Prerequisites
-- Node.js 20+
-- Rust toolchain (stable)
-- Tauri platform prerequisites: https://v2.tauri.app/start/prerequisites/
+## Run on Windows
+Install Node.js 20+, Rust stable, Microsoft C++ Build Tools and WebView2. See https://v2.tauri.app/start/prerequisites/.
 
-## Run
-```bash
+```powershell
 cd desktop-app
 npm install
 npm run tauri dev
 ```
 
-Build:
-```bash
-npm run build
-npm run tauri build
-```
+Build installer: `npm run tauri build`.
 
-## Important accounting limitations
-This is an engineering prototype, not production-ready accounting software. V1 currently supports a simple two-line voucher model. It does not yet implement GST invoices/returns, inventory, financial statements, multi-user controls, audit trail, backup/restore, encryption, or multi-device sync. Do not use it for statutory books until the posting engine, data integrity, backup and reporting tests are completed.
-
-## Database
-SQLite file: `ns_accounts.db` in the Tauri app data directory. Schema initialization is currently performed at startup in `src/db.ts`. Future migrations must be versioned and tested. Currency values are stored as integer paise to avoid floating-point accounting errors.
-
-## Roadmap
-1. Company and financial-year setup; groups, ledgers and opening balances
-2. Multi-line voucher engine with atomic posting, cancellation and audit log
-3. Trial balance, ledger, day book, P&L and balance sheet
-4. GST masters, tax invoice, CGST/SGST/IGST, HSN/SAC and GST reports
-5. Inventory, bank reconciliation, import/export and backup/restore
+## Important limitations
+This is still a prototype. Initial ledgers are demonstration data. Company and financial-year setup, balanced opening-balance import, voucher editing/cancellation, audit trail, GST invoices and returns, inventory, bank reconciliation, backup/restore, encryption and statutory report validation remain future work. Do not use for statutory books or live client accounting yet.
