@@ -23,7 +23,8 @@ function LedgerPicker({ledgers,value,onSelect,rowIndex}:{ledgers:Ledger[];value:
 }
 
 export default function App(){
- const [ready,setReady]=useState(false),[ledgers,setLedgers]=useState<Ledger[]>([]),[vouchers,setVouchers]=useState<Voucher[]>([]),[tb,setTb]=useState<TrialBalanceRow[]>([]);\n const postingRef=useRef(false);
+ const [ready,setReady]=useState(false),[ledgers,setLedgers]=useState<Ledger[]>([]),[vouchers,setVouchers]=useState<Voucher[]>([]),[tb,setTb]=useState<TrialBalanceRow[]>([]);
+ const postingRef=useRef(false);
  const [company,setCompany]=useState<CompanyInfo>({name:"Demo Enterprises",financialYearStart:"2026-04-01",financialYearEnd:"2027-03-31",state:"Gujarat",gstin:""}),[statement,setStatement]=useState<StatementRow[]>([]),[report,setReport]=useState<GroupBalance[]>([]),[selectedLedger,setSelectedLedger]=useState(0),[fromDate,setFromDate]=useState("2026-04-01"),[toDate,setToDate]=useState("2027-03-31"),[reportReady,setReportReady]=useState(false);
  const [view,setView]=useState("Dashboard"),[showEntry,setShowEntry]=useState(false),[showLedger,setShowLedger]=useState(false),[selectedVoucher,setSelectedVoucher]=useState<VoucherDetail|null>(null),[search,setSearch]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  const [voucherType,setVoucherType]=useState("Journal"),[date,setDate]=useState(today()),[narration,setNarration]=useState(""),[lines,setLines]=useState<Line[]>([{...blankLine()},{...blankLine()}]);
