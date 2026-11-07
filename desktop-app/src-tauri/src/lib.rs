@@ -387,7 +387,7 @@ mod accounting_validation_tests {
   let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
   let tds_ledgers:i64=conn.query_row("SELECT COUNT(*) FROM ledgers WHERE name IN ('TDS Payable','TDS Receivable')",[],|r|r.get(0)).unwrap();
   assert_eq!((debit,credit),(0,0));
-  assert_eq!(version,1);
+  assert_eq!(version,2);
   assert_eq!(tds_ledgers,2);
  }
  #[test] fn sqlite_backup_api_creates_a_consistent_copy(){
@@ -408,6 +408,6 @@ mod accounting_validation_tests {
  #[test] fn rejects_partially_completed_blank_row(){assert!(validate_voucher_input("Journal","2026-11-07",&[e(1,10000,0),e(0,0,10000)]).is_err());}
  #[test] fn rejects_unbalanced_voucher(){assert!(validate_voucher_input("Journal","2026-11-07",&[e(1,10000,0),e(2,0,9000)]).is_err());}
  #[test] fn rejects_same_line_debit_and_credit(){assert!(validate_voucher_input("Journal","2026-11-07",&[e(1,10000,10000),e(2,0,0)]).is_err());}
- #[test] fn rejects_unknown_voucher_type(){assert!(validate_voucher_input("Sales","2026-11-07",&[e(1,10000,0),e(2,0,10000)]).is_err());}
+ #[test] fn rejects_unknown_voucher_type(){assert!(validate_voucher_input("Unknown","2026-11-07",&[e(1,10000,0),e(2,0,10000)]).is_err());}
  #[test] fn validates_real_calendar_dates(){assert!(valid_iso_date("2024-02-29"));assert!(!valid_iso_date("2025-02-29"));assert!(!valid_iso_date("2026-13-01"));assert!(!valid_iso_date("2026-2-01"));assert!(valid_date_range("2026-04-01","2027-03-31"));assert!(!valid_date_range("2027-04-01","2027-03-31"));}
 }
