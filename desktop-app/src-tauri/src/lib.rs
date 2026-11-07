@@ -1,4 +1,4 @@
-use rusqlite::{backup::Backup, params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{backup::Backup, params, Connection, OptionalExtension, TransactionBehavior};
 mod gst;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
@@ -138,6 +138,7 @@ fn initialize(conn:&Connection)->Result<(),String>{
  "#).map_err(|e|e.to_string())?;
  let count:i64=conn.query_row("SELECT COUNT(*) FROM ledgers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
  if count==0{let seed=[("Cash","Cash-in-Hand",0_i64,"Dr"),("Bank Account","Bank Accounts",0,"Dr"),("Capital Account","Capital Account",0,"Cr"),("Sales","Sales Accounts",0,"Cr"),("Purchase","Purchase Accounts",0,"Dr"),("Output CGST","Duties & Taxes",0,"Cr"),("Output SGST","Duties & Taxes",0,"Cr"),("Output IGST","Duties & Taxes",0,"Cr"),("Input CGST","Duties & Taxes",0,"Dr"),("Input SGST","Duties & Taxes",0,"Dr"),("Input IGST","Duties & Taxes",0,"Dr"),("TDS Payable","Duties & Taxes",0,"Cr"),("TDS Receivable","Duties & Taxes",0,"Dr"),("Sundry Debtors","Sundry Debtors",0,"Dr"),("Sundry Creditors","Sundry Creditors",0,"Cr"),("Office Expenses","Indirect Expenses",0,"Dr")];for(name,group,balance,side)in seed{conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,?3,?4)",params![name,group,balance,side]).map_err(|e|e.to_string())?;}}
+ conn.execute("INSERT OR IGNORE INTO ledgers(name,group_name,opening_balance,balance_type) VALUES('Output Cess','Duties & Taxes',0,'Cr')",[]).map_err(|e|e.to_string())?;
  Ok(())
 }
 
@@ -270,7 +271,8 @@ fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstS
  if let Some(id)=cgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cgst_total})}
  if let Some(id)=sgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:sgst_total})}
  if let Some(id)=igst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:igst_total})}
- if cess_total>0{return Err("Output Cess ledger is not configured yet. Add the configurable cess ledger before posting cess-bearing invoices.".into())}
+ if let Some(id)=cess_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cess_total})}
+ let cess_id=if cess_total>0{Some(find_ledger("Output Cess")?)}else{None};
  let entries=validate_voucher_input("Sales",&input.invoice_date,&entries)?;
  let fy_label=format!("{}-{}",&company.0[0..4],&company.1[2..4]);
  let invoice_seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM gst_sales_invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;

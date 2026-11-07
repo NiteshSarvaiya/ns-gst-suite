@@ -173,3 +173,26 @@ tbody tr:hover{background:#f0f5fa}
 .company-create-form input{display:block;width:100%;margin-top:6px;border:1px solid #d8e0e8;border-radius:5px;padding:10px 11px;font:inherit;font-size:11px}
 .company-create-form button{white-space:nowrap}
 @media(max-width:700px){.company-create-form{flex-direction:column;align-items:stretch}.company-switch select{max-width:70px}}
+
+.gst-invoice-modal{width:min(1120px,96vw);max-height:92vh;overflow:auto}
+.gst-meta-grid{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:12px;padding:14px 20px}
+.gst-meta-grid label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#68778a;font-weight:600}
+.gst-meta-grid input,.gst-meta-grid select{width:100%;min-width:0;padding:9px;border:1px solid #dbe2e9;border-radius:4px;font-size:11px;color:#1f2e3f;background:#fff}
+.gst-lines-wrap{overflow-x:auto;margin:0 20px;border:1px solid #e2e8ef;border-radius:5px}
+.gst-lines-table{min-width:870px}
+.gst-lines-table th{font-size:9px;white-space:nowrap}
+.gst-lines-table td{padding:5px}
+.gst-lines-table input{width:100%;min-width:70px;padding:8px 6px;border:1px solid #e0e6ec;border-radius:3px;font-size:10px}
+.gst-lines-table td:first-child input{min-width:145px}
+.gst-lines-table td:nth-child(2) input{min-width:90px}
+.gst-add-line{margin:10px 20px}
+.gst-preview{display:flex;flex-wrap:wrap;gap:10px;padding:12px 20px}
+.gst-preview>div{min-width:110px;display:flex;flex-direction:column;gap:5px;padding:10px 12px;background:#f5f7fa;border:1px solid #e6ebf0;border-radius:5px}
+.gst-preview span{font-size:9px;color:#6e7b8b}
+.gst-preview b{font-size:12px;color:#1e2c3e}
+.gst-preview .gst-grand-total{margin-left:auto;background:#fdf8ee;border-color:#e9d9b9}
+.gst-preview .gst-grand-total b{font-size:15px}
+.gst-hint{padding:0 20px;color:#7a8796;font-size:10px;line-height:1.6}
+.cell-sub{display:block;color:#8a96a5;font-size:9px;margin-top:3px}
+@media(max-width:850px){.gst-meta-grid{grid-template-columns:repeat(2,minmax(140px,1fr))}}
+@media(max-width:520px){.gst-meta-grid{grid-template-columns:1fr}}
