@@ -1,4 +1,4 @@
-use rusqlite::{backup::Backup, params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{backup::Backup, params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 mod gst;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
@@ -219,6 +219,9 @@ fn opening_balance_status(app:AppHandle)->Result<OpeningBalanceStatus,String>{
 #[tauri::command] fn balance_sheet(app:AppHandle,as_of:String)->Result<Vec<GroupBalance>,String>{if !valid_iso_date(&as_of){return Err("Enter a valid Balance Sheet date.".into())}let c=open_db(&app)?;initialize(&c)?;let mut s=c.prepare("SELECT l.group_name,SUM((CASE WHEN l.balance_type='Dr' THEN l.opening_balance ELSE -l.opening_balance END)+COALESCE(x.net,0)) FROM ledgers l LEFT JOIN (SELECT vl.ledger_id,SUM(vl.debit-vl.credit) net FROM voucher_lines vl JOIN vouchers v ON v.id=vl.voucher_id WHERE v.voucher_date<=?1 GROUP BY vl.ledger_id) x ON x.ledger_id=l.id WHERE l.group_name NOT IN ('Sales Accounts','Purchase Accounts','Direct Expenses','Indirect Expenses','Direct Incomes','Indirect Incomes') GROUP BY l.group_name ORDER BY l.group_name").map_err(|e|e.to_string())?;let rows=s.query_map(params![as_of],|r|Ok(GroupBalance{group_name:r.get(0)?,amount:r.get(1)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 
 
+fn ledger_id_by_name(tx:&Transaction,name:&str)->Result<i64,String>{
+ tx.query_row("SELECT id FROM ledgers WHERE name=?1 COLLATE NOCASE",params![name],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or_else(||format!("Required ledger '{name}' is missing. Create or restore it before posting this invoice."))
+}
 fn normalized_state(value:&str)->String{value.chars().filter(|c|!c.is_whitespace()).flat_map(char::to_lowercase).collect()}
 fn validate_gstin(value:&str)->bool{
  let v=value.trim().to_ascii_uppercase();
@@ -262,17 +265,16 @@ fn create_gst_sales_invoice(app:AppHandle,input:NewGstSalesInvoice)->Result<GstS
  if invoice_total<=0{return Err("Invoice total must be greater than zero.".into())}
  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
  let party_name:String=tx.query_row("SELECT name FROM ledgers WHERE id=?1 AND group_name='Sundry Debtors'",params![input.party_ledger_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or("Select a customer ledger under Sundry Debtors.")?;
- let find_ledger=|name:&str|->Result<i64,String>{tx.query_row("SELECT id FROM ledgers WHERE name=?1 COLLATE NOCASE",params![name],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or_else(||format!("Required ledger '{name}' is missing. Create or restore it before posting this invoice."))};
- let sales_id=find_ledger("Sales")?;
- let cgst_id=if cgst_total>0{Some(find_ledger("Output CGST")?)}else{None};
- let sgst_id=if sgst_total>0{Some(find_ledger("Output SGST")?)}else{None};
- let igst_id=if igst_total>0{Some(find_ledger("Output IGST")?)}else{None};
+ let sales_id=ledger_id_by_name(&tx,"Sales")?;
+ let cgst_id=if cgst_total>0{Some(ledger_id_by_name(&tx,"Output CGST")?)}else{None};
+ let sgst_id=if sgst_total>0{Some(ledger_id_by_name(&tx,"Output SGST")?)}else{None};
+ let igst_id=if igst_total>0{Some(ledger_id_by_name(&tx,"Output IGST")?)}else{None};
+ let cess_id=if cess_total>0{Some(ledger_id_by_name(&tx,"Output Cess")?)}else{None};
  let mut entries=vec![VoucherEntry{ledger_id:input.party_ledger_id,debit:invoice_total,credit:0},VoucherEntry{ledger_id:sales_id,debit:0,credit:taxable_total}];
  if let Some(id)=cgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cgst_total})}
  if let Some(id)=sgst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:sgst_total})}
  if let Some(id)=igst_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:igst_total})}
  if let Some(id)=cess_id{entries.push(VoucherEntry{ledger_id:id,debit:0,credit:cess_total})}
- let cess_id=if cess_total>0{Some(find_ledger("Output Cess")?)}else{None};
  let entries=validate_voucher_input("Sales",&input.invoice_date,&entries)?;
  let fy_label=format!("{}-{}",&company.0[0..4],&company.1[2..4]);
  let invoice_seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM gst_sales_invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;
@@ -322,6 +324,15 @@ pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![i
 mod accounting_validation_tests {
  use super::*;
  fn e(ledger_id:i64,debit:i64,credit:i64)->VoucherEntry{VoucherEntry{ledger_id,debit,credit}}
+ #[test] fn initialization_installs_gst_sales_invoice_schema(){
+  let conn=Connection::open_in_memory().unwrap();
+  initialize(&conn).unwrap();
+  let invoice_table:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='gst_sales_invoices'",[],|r|r.get(0)).unwrap();
+  let line_table:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='gst_sales_invoice_lines'",[],|r|r.get(0)).unwrap();
+  let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
+  let cess_ledger:i64=conn.query_row("SELECT COUNT(*) FROM ledgers WHERE name='Output Cess'",[],|r|r.get(0)).unwrap();
+  assert_eq!((invoice_table,line_table,version,cess_ledger),(1,1,2,1));
+ }
  #[test] fn company_registry_preserves_existing_database_and_separates_new_company_files(){
   let stamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
   let dir=std::env::temp_dir().join(format!("ns_accounts_registry_test_{stamp}"));
