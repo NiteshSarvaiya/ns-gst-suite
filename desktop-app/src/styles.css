@@ -123,3 +123,29 @@ tbody tr:hover{background:#f0f5fa}
 .voucher-detail-modal{border-radius:3px}
 .modal{border-radius:4px}
 @media(max-width:900px){.sidebar{width:190px}.page{padding:14px}.voucher-toolbar{grid-template-columns:1fr 1fr}.narration-field{grid-column:1/-1}}
+
+/* Voucher grid correctness: prevent sticky header overlapping the first entry row */
+.voucher-screen{position:fixed;inset:25px 0 0;z-index:30;background:#e8edf2;overflow:auto}
+.voucher-screen .voucher-modal{width:100%;min-height:calc(100vh - 25px);height:auto;max-height:none;overflow:visible;display:flex;flex-direction:column}
+.voucher-screen .voucher-toolbar{display:grid;grid-template-columns:190px 180px minmax(280px,1fr);align-items:end;flex:0 0 auto}
+.voucher-screen .voucher-toolbar label{display:flex;flex-direction:column;gap:5px}
+.voucher-screen .voucher-toolbar label small{display:inline;color:#a5792c;font-size:9px}
+.voucher-screen .entry-table-wrap{display:block;overflow:auto;min-height:300px;flex:1 0 300px}
+.voucher-screen .entry-table{width:100%;table-layout:fixed;border-collapse:collapse}
+.voucher-screen .entry-table thead{position:static}
+.voucher-screen .entry-table th{position:static;top:auto;z-index:auto;height:34px}
+.voucher-screen .entry-table tbody tr{height:43px;display:table-row}
+.voucher-screen .entry-table tbody td{height:43px;vertical-align:middle;background:transparent}
+.voucher-screen .entry-table tbody tr:nth-child(even){background:#f7f9fb}
+.voucher-screen .entry-table tbody tr:hover{background:#fff8e9}
+.voucher-screen .entry-table tbody select,.voucher-screen .entry-table tbody input{width:100%;height:34px;min-height:34px;display:block}
+.voucher-screen .entry-table tbody td:first-child{width:auto}
+.voucher-screen .entry-table tfoot{display:table-footer-group}
+.voucher-screen .entry-table tfoot td{height:32px}
+.voucher-head-actions{display:flex;align-items:center;gap:14px;color:#c4d0dc;font-size:10px}
+.voucher-screen .shortcut-help{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.voucher-screen .shortcut-help span{display:inline-block;padding:3px 6px;border:1px solid #65788b;border-radius:2px;color:#f3c96f;font-size:10px}
+.voucher-screen .voucher-actions{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+.voucher-screen .voucher-actions .balanced,.voucher-screen .voucher-actions .unbalanced{margin-left:auto}
+.voucher-screen .modal-head{flex:0 0 auto}
+@media(max-width:850px){.voucher-screen .voucher-toolbar{grid-template-columns:1fr 1fr}.voucher-screen .narration-field{grid-column:1/-1}}
