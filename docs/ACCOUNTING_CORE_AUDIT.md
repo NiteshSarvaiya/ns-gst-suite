@@ -67,3 +67,10 @@ The test suite must seed a disposable company and verify both ledger-level movem
 - Every release candidate needs a clean frontend build, Rust test/build, Windows desktop launch test and a manual accounting acceptance run.
 - A feature is not marked complete because its screen renders.
 - Existing local databases must be backed up before testing builds that change the schema.
+
+
+## Continuous verification added
+
+- Added `.github/workflows/desktop-checks.yml` to run the frontend production build, Rust unit tests and Rust formatting check on Windows.
+- The repository currently has no committed npm lockfile, so CI uses `npm install` rather than `npm ci`.
+- The GitHub connector did not return an associated workflow run for the latest workflow commit. CI execution is therefore not yet confirmed; inspect the Actions tab and fix any runner/build failures before treating the checks as green.
