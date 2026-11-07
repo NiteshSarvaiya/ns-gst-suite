@@ -8,11 +8,11 @@ NS Accounts is an offline-first Windows desktop accounting application built wit
 - Atomic SQLite voucher posting, paise-based integer storage and backend validation.
 - Ledger master, opening balances, voucher register, voucher details and keyboard-first voucher entry.
 - Day Book, ledger statement with running balances, as-of Trial Balance and preliminary group-wise P&L / Balance Sheet previews.
-- Company profile and financial-year settings for the current single-company database.
+- Company profile and financial-year settings, with a company switcher and separate SQLite database files for each company. The existing ns_accounts.db is registered as the first company and is not moved or renamed.
 - Opening-balance debit/credit diagnostic; no silent suspense plug is created.
 - Verified SQLite online backup: a consistent database snapshot is written to the app's backups folder and checked with PRAGMA integrity_check before success is reported.
 - Fresh database setup uses zero opening balances and includes initial GST and TDS control ledgers. Existing non-empty ledgers are not overwritten by the seed routine.
-- A schema-version marker is recorded in SQLite. A full multi-version migration manager is still required.
+- The company registry records each company's separate database file; a schema-version marker is recorded in each company's SQLite database. A full multi-version migration manager is still required.
 
 ## Windows development build
 
@@ -51,9 +51,9 @@ npm run tauri -- build --bundles msi
 
 ## Not yet implemented — do not use for live statutory books
 
-The following are required before selling this as a full accounting and taxation solution:
+The following are still required before selling this as a full accounting and taxation solution:
 
-- Multi-company isolation, branch / financial-year controls and tested database migrations.
+- Branch / financial-year controls and a full tested multi-version migration manager. Company separation currently uses one SQLite database per company.
 - A balanced opening journal / opening-balance import and a complete accounting chart hierarchy.
 - Independent reconciliation of Trial Balance, P&L, Balance Sheet, retained earnings and opening / closing balances against accounting acceptance fixtures.
 - Voucher alteration, cancellation by reversal, immutable audit log, approval workflow and durable backend idempotency.
