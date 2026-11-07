@@ -1,4 +1,4 @@
-use rusqlite::{backup::Backup, params, Connection, TransactionBehavior};
+use rusqlite::{backup::Backup, params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager};
@@ -24,6 +24,9 @@ struct GroupBalance { group_name:String, amount:i64 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CompanyInfo { name:String, financial_year_start:String, financial_year_end:String, state:String, gstin:String }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompanySummary { id:String, name:String, is_active:bool }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CompanyUpdate { name:String, financial_year_start:String, financial_year_end:String, state:String, gstin:String }
@@ -65,7 +68,28 @@ fn validate_voucher_input(kind:&str,date:&str,entries:&[VoucherEntry])->Result<V
 }
 fn valid_date_range(start:&str,end:&str)->bool { valid_iso_date(start) && valid_iso_date(end) && start<=end }
 
-fn database_path(app:&AppHandle)->Result<PathBuf,String>{let dir=app.path().app_data_dir().map_err(|e|e.to_string())?;fs::create_dir_all(&dir).map_err(|e|e.to_string())?;Ok(dir.join("ns_accounts.db"))}
+fn app_data_dir(app:&AppHandle)->Result<PathBuf,String>{let dir=app.path().app_data_dir().map_err(|e|e.to_string())?;fs::create_dir_all(&dir).map_err(|e|e.to_string())?;Ok(dir)}
+fn registry_connection(app:&AppHandle)->Result<Connection,String>{
+ let dir=app_data_dir(app)?;
+ let registry=Connection::open(dir.join("ns_accounts_registry.db")).map_err(|e|e.to_string())?;
+ registry.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS companies(id TEXT PRIMARY KEY,name TEXT NOT NULL COLLATE NOCASE,db_file TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS app_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);").map_err(|e|e.to_string())?;
+ let count:i64=registry.query_row("SELECT COUNT(*) FROM companies",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if count==0{
+  let legacy=dir.join("ns_accounts.db");
+  let legacy_name=if legacy.exists(){Connection::open(&legacy).ok().and_then(|db|db.query_row("SELECT name FROM company_settings WHERE id=1",[],|r|r.get::<_,String>(0)).optional().ok().flatten()).filter(|n|!n.trim().is_empty()).unwrap_or_else(||"My Company".to_string())}else{"My Company".to_string()};
+  registry.execute("INSERT OR IGNORE INTO companies(id,name,db_file) VALUES('default',?1,'ns_accounts.db')",params![legacy_name]).map_err(|e|e.to_string())?;
+  registry.execute("INSERT OR IGNORE INTO app_state(key,value) VALUES('active_company_id','default')",[]).map_err(|e|e.to_string())?;
+ }
+ Ok(registry)
+}
+fn database_path(app:&AppHandle)->Result<PathBuf,String>{
+ let dir=app_data_dir(app)?;let registry=registry_connection(app)?;
+ let active:String=registry.query_row("SELECT value FROM app_state WHERE key='active_company_id'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"default".to_string());
+ let filename:Option<String>=registry.query_row("SELECT db_file FROM companies WHERE id=?1",params![active],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+ let filename=filename.unwrap_or_else(||"ns_accounts.db".to_string());
+ if PathBuf::from(&filename).file_name().and_then(|n|n.to_str())!=Some(filename.as_str()){return Err("Invalid company database registration.".into())}
+ Ok(dir.join(filename))
+}
 fn open_db(app:&AppHandle)->Result<Connection,String>{let conn=Connection::open(database_path(app)?).map_err(|e|e.to_string())?;conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;").map_err(|e|e.to_string())?;Ok(conn)}
 fn initialize(conn:&Connection)->Result<(),String>{
  conn.execute_batch(r#"
@@ -83,9 +107,41 @@ fn initialize(conn:&Connection)->Result<(),String>{
  if count==0{let seed=[("Cash","Cash-in-Hand",0_i64,"Dr"),("Bank Account","Bank Accounts",0,"Dr"),("Capital Account","Capital Account",0,"Cr"),("Sales","Sales Accounts",0,"Cr"),("Purchase","Purchase Accounts",0,"Dr"),("Output CGST","Duties & Taxes",0,"Cr"),("Output SGST","Duties & Taxes",0,"Cr"),("Output IGST","Duties & Taxes",0,"Cr"),("Input CGST","Duties & Taxes",0,"Dr"),("Input SGST","Duties & Taxes",0,"Dr"),("Input IGST","Duties & Taxes",0,"Dr"),("TDS Payable","Duties & Taxes",0,"Cr"),("TDS Receivable","Duties & Taxes",0,"Dr"),("Sundry Debtors","Sundry Debtors",0,"Dr"),("Sundry Creditors","Sundry Creditors",0,"Cr"),("Office Expenses","Indirect Expenses",0,"Dr")];for(name,group,balance,side)in seed{conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,?3,?4)",params![name,group,balance,side]).map_err(|e|e.to_string())?;}}
  Ok(())
 }
+
+#[tauri::command]
+fn list_companies(app:AppHandle)->Result<Vec<CompanySummary>,String>{
+ let registry=registry_connection(&app)?;
+ let active:String=registry.query_row("SELECT value FROM app_state WHERE key='active_company_id'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"default".to_string());
+ let mut stmt=registry.prepare("SELECT id,name FROM companies ORDER BY name COLLATE NOCASE").map_err(|e|e.to_string())?;
+ let rows=stmt.query_map([],|r|{let id:String=r.get(0)?;let name:String=r.get(1)?;Ok(CompanySummary{id:id.clone(),name,is_active:id==active})}).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
+#[tauri::command]
+fn switch_company(app:AppHandle,company_id:String)->Result<(),String>{
+ let registry=registry_connection(&app)?;
+ let changed=registry.execute("UPDATE app_state SET value=?1 WHERE key='active_company_id' AND EXISTS(SELECT 1 FROM companies WHERE id=?1)",params![company_id]).map_err(|e|e.to_string())?;
+ if changed!=1{return Err("The selected company does not exist.".into())}Ok(())
+}
+#[tauri::command]
+fn create_company(app:AppHandle,name:String)->Result<String,String>{
+ let name=name.trim();if name.is_empty(){return Err("Enter a company name.".into())}if name.len()>120{return Err("Company name must be 120 characters or fewer.".into())}
+ let _=database_path(&app)?;let dir=app_data_dir(&app)?;let mut registry=registry_connection(&app)?;
+ let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+ let id=format!("company_{stamp}");let filename=format!("{id}.sqlite");let path=dir.join(&filename);
+ let result=(||->Result<(),String>{
+  let db=Connection::open(&path).map_err(|e|e.to_string())?;initialize(&db)?;
+  db.execute("UPDATE company_settings SET name=?1 WHERE id=1",params![name]).map_err(|e|e.to_string())?;
+  let tx=registry.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+  tx.execute("INSERT INTO companies(id,name,db_file) VALUES(?1,?2,?3)",params![id,name,filename]).map_err(|e|format!("Could not register company: {e}"))?;
+  tx.execute("INSERT INTO app_state(key,value) VALUES('active_company_id',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![id]).map_err(|e|e.to_string())?;
+  tx.commit().map_err(|e|e.to_string())?;Ok(())
+ })();
+ if let Err(e)=result{let _=fs::remove_file(&path);return Err(e)}Ok(id)
+}
+
 #[tauri::command] fn init_db(app:AppHandle)->Result<(),String>{initialize(&open_db(&app)?)}
 #[tauri::command] fn get_company(app:AppHandle)->Result<CompanyInfo,String>{let c=open_db(&app)?;initialize(&c)?;c.query_row("SELECT name,financial_year_start,financial_year_end,state,gstin FROM company_settings WHERE id=1",[],|r|Ok(CompanyInfo{name:r.get(0)?,financial_year_start:r.get(1)?,financial_year_end:r.get(2)?,state:r.get(3)?,gstin:r.get(4)?})).map_err(|e|e.to_string())}
-#[tauri::command] fn update_company(app:AppHandle,input:CompanyUpdate)->Result<(),String>{let name=input.name.trim();if name.is_empty(){return Err("Company name is required.".into())}if !valid_iso_date(&input.financial_year_start)||!valid_iso_date(&input.financial_year_end)||input.financial_year_start>=input.financial_year_end{return Err("Enter valid financial year dates; the end date must be after the start date.".into())}let c=open_db(&app)?;initialize(&c)?;c.execute("UPDATE company_settings SET name=?1,financial_year_start=?2,financial_year_end=?3,state=?4,gstin=?5 WHERE id=1",params![name,input.financial_year_start,input.financial_year_end,input.state.trim(),input.gstin.trim()]).map_err(|e|e.to_string())?;Ok(())}
+#[tauri::command] fn update_company(app:AppHandle,input:CompanyUpdate)->Result<(),String>{let name=input.name.trim();if name.is_empty(){return Err("Company name is required.".into())}if !valid_iso_date(&input.financial_year_start)||!valid_iso_date(&input.financial_year_end)||input.financial_year_start>=input.financial_year_end{return Err("Enter valid financial year dates; the end date must be after the start date.".into())}let active_path=database_path(&app)?;let c=open_db(&app)?;initialize(&c)?;c.execute("UPDATE company_settings SET name=?1,financial_year_start=?2,financial_year_end=?3,state=?4,gstin=?5 WHERE id=1",params![name,input.financial_year_start,input.financial_year_end,input.state.trim(),input.gstin.trim()]).map_err(|e|e.to_string())?;let registry=registry_connection(&app)?;let filename=active_path.file_name().and_then(|n|n.to_str()).ok_or("Invalid company database file.")?;registry.execute("UPDATE companies SET name=?1 WHERE db_file=?2",params![name,filename]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn list_ledgers(app:AppHandle)->Result<Vec<Ledger>,String>{let conn=open_db(&app)?;initialize(&conn)?;let mut s=conn.prepare("SELECT id,name,group_name,opening_balance,balance_type FROM ledgers ORDER BY name").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Ledger{id:r.get(0)?,name:r.get(1)?,group_name:r.get(2)?,opening_balance:r.get(3)?,balance_type:r.get(4)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 
 #[derive(Serialize)]
@@ -152,7 +208,7 @@ fn create_backup(app:AppHandle)->Result<String,String>{
 }
 
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
+pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
 
 #[cfg(test)]
 mod accounting_validation_tests {

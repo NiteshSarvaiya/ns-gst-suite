@@ -7,10 +7,14 @@ export type TrialBalanceRow={id:number;name:string;groupName:string;debit:number
 export type OpeningBalanceStatus={debitTotal:number;creditTotal:number;difference:number};
 export type Entry={ledgerId:number;debit:number;credit:number};
 export type NewVoucher={voucherType:string;voucherDate:string;narration:string;entries:Entry[]};
+export type CompanySummary={id:string;name:string;isActive:boolean};
 export type CompanyInfo={name:string;financialYearStart:string;financialYearEnd:string;state:string;gstin:string};
 export type StatementRow={voucherId:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;debit:number;credit:number;runningBalance:number};
 export type GroupBalance={groupName:string;amount:number};
 export async function connectDb(){await invoke("init_db");}
+export const getCompanies=()=>invoke<CompanySummary[]>("list_companies");
+export const switchCompany=(companyId:string)=>invoke<void>("switch_company",{companyId});
+export const createCompany=(name:string)=>invoke<string>("create_company",{name});
 export const getCompany=()=>invoke<CompanyInfo>("get_company");
 export const updateCompany=(input:CompanyInfo)=>invoke<void>("update_company",{input});
 export const getLedgers=()=>invoke<Ledger[]>("list_ledgers");

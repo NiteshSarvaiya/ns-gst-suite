@@ -164,3 +164,12 @@ tbody tr:hover{background:#f0f5fa}
 .backup-help{margin:0 21px 12px;color:#6f7e90;font-size:11px;line-height:1.7;max-width:850px}
 .backup-success{margin:0 21px;padding:10px 12px;background:#edf7f1;color:#246044;border:1px solid #c8e6d3;border-radius:5px;font-size:11px;overflow-wrap:anywhere}
 .backup-panel .panel-head{gap:16px;flex-wrap:wrap}
+
+.company-switch{gap:8px}
+.company-switch select{max-width:96px;min-width:70px;background:#24364c;color:#edf2f7;border:1px solid #43556c;border-radius:4px;padding:5px;font-size:9px}
+.company-switch select:focus{outline:2px solid #d6a64f}
+.company-create-form{display:flex;align-items:flex-end;gap:14px;padding:16px 21px 20px}
+.company-create-form label{flex:1;color:#657489;font-size:10px;font-weight:600}
+.company-create-form input{display:block;width:100%;margin-top:6px;border:1px solid #d8e0e8;border-radius:5px;padding:10px 11px;font:inherit;font-size:11px}
+.company-create-form button{white-space:nowrap}
+@media(max-width:700px){.company-create-form{flex-direction:column;align-items:stretch}.company-switch select{max-width:70px}}
