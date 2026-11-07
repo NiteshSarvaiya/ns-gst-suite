@@ -74,3 +74,12 @@ The test suite must seed a disposable company and verify both ledger-level movem
 - Added `.github/workflows/desktop-checks.yml` to run the frontend production build, Rust unit tests and Rust formatting check on Windows.
 - The repository currently has no committed npm lockfile, so CI uses `npm install` rather than `npm ci`.
 - The GitHub connector did not return an associated workflow run for the latest workflow commit. CI execution is therefore not yet confirmed; inspect the Actions tab and fix any runner/build failures before treating the checks as green.
+
+## As-of Trial Balance and opening-balance diagnostics
+
+- Trial Balance now accepts an explicit as-of date and includes voucher movements only through that date.
+- The screen exposes an as-of date selector and refresh action.
+- Opening debit and credit totals are calculated separately from voucher movements; an imbalance is shown as a warning rather than silently hidden.
+- Company financial-year dates and report date ranges are validated as real calendar dates.
+- The diagnostic does not auto-post a suspense balance or alter existing opening balances. A dedicated opening-balance finalisation/import workflow remains outstanding.
+- These changes are committed; automated CI execution is still pending confirmation.
