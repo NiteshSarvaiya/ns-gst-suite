@@ -1,0 +1,36 @@
+name: Desktop app checks
+on:
+  pull_request:
+    branches:
+      - feature/accounting-v1.2-keyboard
+      - feature/accounting-v1.2-reports-company
+  push:
+    branches:
+      - feature/accounting-core-audit
+jobs:
+  windows-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-app/src-tauri
+      - name: Install frontend dependencies
+        working-directory: desktop-app
+        run: npm ci
+      - name: Frontend typecheck and production build
+        working-directory: desktop-app
+        run: npm run build
+      - name: Rust unit tests
+        run: cargo test --manifest-path desktop-app/src-tauri/Cargo.toml
+      - name: Rust formatting check
+        run: cargo fmt --manifest-path desktop-app/src-tauri/Cargo.toml -- --check
