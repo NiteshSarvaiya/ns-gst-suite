@@ -59,3 +59,67 @@ td{padding:10px 14px;font-size:11px}
 .voucher-row:focus-within,.voucher-row:hover{background:#f4f7fb}
 .voucher-detail-modal{border-radius:7px}
 @media(max-width:900px){.sidebar{width:205px}.page{padding:20px 16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* V1.3 — accounting desk: compact, keyboard-led, register-first visual system */
+:root{font-family:"Segoe UI",Tahoma,Arial,sans-serif;color:#1c2b3b;background:#e8edf2}
+body{background:#e8edf2}
+.app-shell{min-height:100vh;background:#e8edf2}
+.sidebar{width:218px;background:#172638;padding:14px 10px;color:#d9e3ed;border-right:1px solid #0e1b29}
+.brand{padding:3px 8px 16px;border-bottom:1px solid #314357;margin-bottom:13px}
+.brand-mark{border-radius:4px;width:34px;height:34px;background:#d8ad55}
+.brand b{font-size:14px;letter-spacing:.2px}
+.company-switch{border-radius:3px;background:#22384e;border:1px solid #3b5065;margin:0 0 16px;padding:10px}
+.nav-label{font-size:9px;color:#90a2b4;letter-spacing:1.4px;padding:0 9px 7px}
+.nav-item{border-radius:3px;margin:1px 0;padding:9px 10px;font-size:12px;color:#c4d0dc;gap:10px}
+.nav-item.active,.nav-item:hover{background:#314a62;box-shadow:inset 3px 0 #e1b45c;color:#fff}
+.secure{border-color:#35495c}
+.main{background:#e8edf2}
+.topbar{height:43px;background:#f9fbfc;border-bottom:1px solid #cbd4dd;padding:0 22px;font-size:11px}
+.page{max-width:none;padding:18px 22px 28px}
+.page-heading{margin-bottom:13px;align-items:center}
+.page h1{font-size:20px;font-weight:650;margin:3px 0}
+.eyebrow{font-size:9px;letter-spacing:1.3px}
+.subheading{font-size:11px}
+.primary{border-radius:3px;background:#25415b;padding:9px 13px;font-size:11px}
+.secondary{border-radius:3px;padding:8px 11px}
+.panel,.stat-card{border:1px solid #cbd4dd;border-radius:3px;box-shadow:0 1px 1px #13283a08;background:#fff}
+.panel-head{padding:11px 14px;border-bottom:1px solid #d9e0e6}
+.panel-head h2{font-size:13px}
+.panel-head p{font-size:10px}
+.stats{gap:8px;margin:0 0 12px}
+.stat-card{padding:12px 14px}
+.stat-card strong{font-size:19px;margin:9px 0 3px}
+.stat-top{font-size:10px}
+table{border-collapse:collapse}
+th{background:#eaf0f5;color:#506174;border-bottom:1px solid #cbd4dd;padding:9px 11px;font-size:9px;letter-spacing:.45px}
+td{border-bottom:1px solid #e2e7ec;padding:8px 11px;font-size:11px}
+tbody tr:nth-child(even){background:#fafbfd}
+tbody tr:hover{background:#f0f5fa}
+.voucher-row{cursor:pointer}
+.voucher-link{color:#1f5d88}
+.tag{border-radius:2px;background:#e8eef4;color:#34516b}
+.note{border:1px solid #cbd4dd;border-radius:3px;background:#f2f5f8;padding:11px 14px;font-size:10px}
+.modal-backdrop{background:#172638a8;backdrop-filter:none;padding:0;align-items:stretch;justify-content:stretch}
+.voucher-modal{width:100%;height:100vh;max-height:100vh;overflow:auto;border-radius:0;padding:0 22px 14px;box-shadow:none;background:#edf2f6}
+.voucher-modal .modal-head{position:sticky;top:0;z-index:5;margin:0 -22px 0;padding:11px 22px;background:#1b3045;color:#fff;border-bottom:3px solid #d7aa52}
+.voucher-modal .modal-head h2{color:#fff;font-size:17px;margin:2px 0}
+.voucher-modal .modal-head .eyebrow{color:#e4bd74}
+.voucher-modal .close{color:#fff;background:#30485f;border-radius:3px}
+.voucher-toolbar{grid-template-columns:180px 170px minmax(250px,1fr);gap:9px;background:#fff;border:1px solid #cbd4dd;padding:12px;margin:12px 0}
+.voucher-toolbar label{font-size:10px;color:#43576b}
+.voucher-toolbar input,.voucher-toolbar select,.entry-table select,.entry-table input{border:1px solid #bfcbd6;border-radius:2px;padding:8px 9px;font-size:12px;min-height:34px;background:#fff;color:#1c2b3b}
+.entry-table-wrap{border:1px solid #bfcbd6;border-radius:2px;background:#fff;min-height:230px}
+.entry-table th{position:sticky;top:48px;background:#dce6ee;color:#30485d;padding:10px}
+.entry-table td{padding:4px 6px}
+.entry-table td:first-child{width:52%}
+.entry-table select,.entry-table input{margin:0;min-width:130px}
+.entry-table input{text-align:right;font-variant-numeric:tabular-nums}
+.entry-table select:focus,.entry-table input:focus,.voucher-toolbar input:focus,.voucher-toolbar select:focus{outline:2px solid #d6a84e;outline-offset:-1px;background:#fffdf5;border-color:#ad812e}
+.entry-table tfoot td{background:#eaf0f5;border-top:2px solid #aebdca}
+.voucher-actions{padding:10px 0;border-bottom:1px solid #cbd4dd}
+.voucher-actions .balanced,.voucher-actions .unbalanced{font-size:11px}
+.shortcut-help{position:sticky;bottom:0;background:#1b3045;color:#e4edf5;border:0;border-radius:0;margin:12px -22px 0;padding:10px 22px;z-index:5}
+.shortcut-help span{color:#f0c56e}
+.voucher-detail-modal{border-radius:3px}
+.modal{border-radius:4px}
+@media(max-width:900px){.sidebar{width:190px}.page{padding:14px}.voucher-toolbar{grid-template-columns:1fr 1fr}.narration-field{grid-column:1/-1}}
