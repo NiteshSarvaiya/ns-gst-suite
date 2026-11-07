@@ -7,6 +7,8 @@ on:
   push:
     branches:
       - feature/accounting-core-audit
+permissions:
+  contents: read
 jobs:
   windows-checks:
     runs-on: windows-latest
@@ -24,11 +26,21 @@ jobs:
           workspaces: desktop-app/src-tauri
       - name: Install frontend dependencies
         working-directory: desktop-app
-        run: npm install
+        run: npm install --no-audit --no-fund
       - name: Frontend typecheck and production build
         working-directory: desktop-app
         run: npm run build
-      - name: Rust unit tests
-        run: cargo test --manifest-path desktop-app/src-tauri/Cargo.toml
       - name: Rust formatting check
         run: cargo fmt --manifest-path desktop-app/src-tauri/Cargo.toml -- --check
+      - name: Rust unit tests
+        run: cargo test --manifest-path desktop-app/src-tauri/Cargo.toml
+      - name: Build Windows MSI installer
+        working-directory: desktop-app
+        run: npm run tauri -- build --bundles msi
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NS-Accounts-Windows-MSI
+          path: desktop-app/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
