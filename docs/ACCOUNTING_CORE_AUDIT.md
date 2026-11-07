@@ -24,7 +24,7 @@
 | Data safety | No backup/restore workflow or tested recovery path is present. | Critical | Implement verified backup, restore, integrity check and recovery tests before production use. |
 | Keyboard UX | The UI uses a global key listener and local form key handling. Shortcut behaviour varies with focused controls and needs a central, tested key map. | Medium | Centralize shortcut routing and test every workflow without mouse input. |
 
-## Required accounting acceptance tests
+## Work completed on the audit branch\n\n- Added pure Rust validation for strict real calendar dates (including leap years).\n- Voucher types are restricted to Contra, Payment, Receipt and Journal at the backend boundary.\n- Completely blank trailing voucher rows are ignored safely. Partially completed rows, invalid ledger IDs, negative amounts, same-line debit/credit, zero-value vouchers and unbalanced vouchers are rejected.\n- Added Rust unit tests covering balanced journal acceptance, blank trailing row handling, partially completed row rejection, unbalanced voucher rejection, same-line debit/credit rejection, unsupported voucher types and real calendar date validation.\n- These tests are committed but have **not yet been executed** in a Rust toolchain in this environment. Do not treat them as passing until `cargo test` runs successfully.\n\n## Required accounting acceptance tests
 
 The test suite must seed a disposable company and verify both ledger-level movements and report totals.
 
