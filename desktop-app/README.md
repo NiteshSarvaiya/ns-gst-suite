@@ -58,8 +58,8 @@ The following are still required before selling this as a full accounting and ta
 - Independent reconciliation of Trial Balance, P&L, Balance Sheet, retained earnings and opening / closing balances against accounting acceptance fixtures.
 - Voucher alteration, cancellation by reversal, immutable audit log, approval workflow and durable backend idempotency.
 - Sales and purchase invoice sub-ledgers, debtor / creditor ageing, credit/debit notes, receipt allocations and document numbering controls.
-- GST tax engine and document workflows: intra/inter-state place of supply, HSN/SAC, tax slabs with effective dates, exemptions, RCM, cess, e-invoice/e-way bill integration, GSTR-1, GSTR-3B, 2B/ITC reconciliation, refunds and statutory exports.
-- TDS section/rule master with effective dates, threshold and rate configuration, deduction events, challans, return preparation/export, Form 16/16A and reconciliation.
+- A complete GST compliance suite: effective-dated statutory tax/rate master and classification validation, exemptions/nil-rated and RCM treatment, buyer/seller registration and address checks, print-ready tax invoices, credit/debit notes, purchase invoices and ITC, e-invoice/e-way bill integrations, GSTR-1, GSTR-3B, 2B/ITC reconciliation, refunds and statutory exports. The current sales invoice rate is entered by the user and is not selected from a statutory tax master.
+- TDS section/rule master with effective dates, thresholds and rates, PAN/lower-deduction handling, deduction events, challans, return preparation/export, Form 16/16A and reconciliation.
 - Inventory, valuation, units, batches/serials, bank reconciliation, fixed assets/depreciation, cost centres, payroll and budgeting.
 - Backup restore verification, import/export, access controls, encryption, disaster recovery and release signing.
 - Full automated accounting/tax regression tests, end-to-end keyboard/UI testing, independent CA validation and user acceptance testing.
