@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-export type Ledger={id:number;name:string;group_name:string;opening_balance:number;balance_type:"Dr"|"Cr"};
-export type Voucher={id:number;voucher_no:string;voucher_type:string;voucher_date:string;narration:string;total:number};
+export type Ledger={id:number;name:string;groupName:string;openingBalance:number;balanceType:"Dr"|"Cr"};
+export type Voucher={id:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;total:number};
 export type VoucherLineDetail={ledgerId:number;ledgerName:string;debit:number;credit:number};
 export type VoucherDetail={id:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;total:number;lines:VoucherLineDetail[]};
-export type TrialBalanceRow={id:number;name:string;group_name:string;debit:number;credit:number};
+export type TrialBalanceRow={id:number;name:string;groupName:string;debit:number;credit:number};
 export type Entry={ledgerId:number;debit:number;credit:number};
 export type NewVoucher={voucherType:string;voucherDate:string;narration:string;entries:Entry[]};
 export type CompanyInfo={name:string;financialYearStart:string;financialYearEnd:string;state:string;gstin:string};
