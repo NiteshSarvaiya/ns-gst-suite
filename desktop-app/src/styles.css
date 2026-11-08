@@ -226,3 +226,87 @@ tbody tr:hover{background:#f0f5fa}
 .tds-form-grid .tds-active{display:flex;flex-direction:row;align-items:center;gap:8px}
 .tds-rule-form{margin-top:18px}
 @media(max-width:680px){.tds-form-grid{grid-template-columns:1fr}.tds-form-grid .span-2{grid-column:span 1}}
+
+
+/* NS Accounts — Tally-inspired desktop workspace redesign */
+:root{
+  --ns-teal:#075b63;--ns-teal-dark:#06464d;--ns-teal-soft:#e1f0ef;
+  --ns-paper:#f4f5f3;--ns-line:#c9d3d2;--ns-ink:#182f35;--ns-muted:#607477;
+  --ns-focus:#f0c34e;--ns-white:#fff;
+}
+html,body,#root{min-height:100%;background:var(--ns-paper);color:var(--ns-ink)}
+body{font-family:"Segoe UI",Arial,sans-serif;font-size:13px}
+.app-shell{min-height:100vh;background:#e9eeec}
+.sidebar{width:238px;background:#103b43;color:#dbe8e7;padding:0 9px 12px;border-right:1px solid #0a3036}
+.brand{height:62px;padding:0 11px;border-bottom:1px solid #31575c;margin:0 0 10px;gap:10px}
+.brand-mark{width:35px;height:35px;border-radius:3px;background:#f0c34e;color:#153a40;font-size:15px}
+.brand b{font-size:15px;letter-spacing:.1px}.brand small{font-size:9px;color:#a9c3c2;letter-spacing:1.4px}
+.company-switch{margin:0 0 13px;border:1px solid #42666a;background:#174a51;border-radius:2px;padding:9px 8px}
+.company-switch b{font-size:11px}.company-switch small{font-size:9px;color:#b3c9c8}
+.company-switch select{background:#0e3a42;color:#fff;border:1px solid #5a7779;border-radius:2px;max-width:86px}
+.nav-label{color:#91b0ae;padding:3px 10px 7px;font-size:9px;letter-spacing:1.5px}
+.nav-item{height:35px;margin:1px 0;padding:0 10px;border-radius:2px;color:#d0dfde;font-size:12px;gap:11px}
+.nav-item svg{width:16px;height:16px;opacity:.9}
+.nav-item.active{background:#e3efed;color:#0c4b52;box-shadow:inset 3px 0 #edbd42;font-weight:700}
+.nav-item:hover:not(.active){background:#24565c;color:#fff}
+.secure{border-top:1px solid #31575c;margin:10px 0 0;color:#f0c34e}
+.secure span{font-size:10px}.secure small{color:#a8c0bf}
+.main{min-width:0;background:#e9eeec}
+.topbar{height:48px;background:var(--ns-teal);color:#fff;border:0;padding:0 24px;font-size:12px;box-shadow:0 1px 3px #102e3326}
+.topbar .crumb,.topbar .slash{color:#b8d1d0}.topbar .db-status{color:#d9eeea}.topbar .db-status i{background:#83d5a5}
+.avatar{background:#f0c34e;color:#123f45;border-radius:2px}
+.page{max-width:none;padding:20px 24px 34px}
+.page-heading{min-height:55px;margin-bottom:15px;padding:0 0 12px;border-bottom:1px solid #c5d0ce;align-items:center}
+.page h1{font-size:22px;letter-spacing:0;color:#173d43;font-weight:650}
+.eyebrow{color:#9a7522;font-size:9px;letter-spacing:1.4px}
+.subheading{color:#647779;font-size:11px}
+.primary{background:var(--ns-teal);color:white;border-radius:2px;padding:9px 15px;font-size:11px}
+.primary:hover{background:var(--ns-teal-dark)}
+.secondary{border-radius:2px;border-color:#aebdbc;color:#244b50;background:#fdfefe}
+.panel,.stat-card{border:1px solid #c6d1cf;border-radius:2px;box-shadow:0 1px 2px #183c4010;background:#fff}
+.panel{margin-bottom:14px}
+.panel-head{padding:12px 15px;background:#edf3f2;border-bottom:1px solid #cbd6d4}
+.panel-head h2{font-size:13px;color:#16474d;font-weight:700}
+.panel-head p{color:#6d8181;font-size:10px}
+.stats{gap:10px;margin-bottom:14px}
+.stat-card{padding:13px 15px;position:relative;min-height:98px}
+.stat-top{font-size:10px;color:#637879;font-weight:600}
+.stat-top svg{color:#08717a}
+.stat-card strong{font-size:22px;color:#123f45;letter-spacing:-.3px;margin:11px 0 4px}
+.stat-card small{color:#718382;font-size:9px}
+table{font-variant-numeric:tabular-nums}
+th{background:#dce8e6;color:#365c5e;border-bottom:1px solid #b9c9c6;padding:10px 13px;font-size:9px;letter-spacing:.55px}
+td{padding:9px 13px;border-bottom:1px solid #e2e9e7;color:#435e60;font-size:11px}
+td.strong{color:#183f45;font-weight:700}
+tbody tr:nth-child(even){background:#f8faf9}
+tbody tr:hover{background:#edf6f4}
+tfoot td{background:#e6efed;color:#17474c;border-top:1px solid #aebfbc}
+.tag{background:#e2efed;color:#15565b;border-radius:2px}
+.note{border-radius:2px;background:#eef5f3;border:1px solid #c8d9d5}
+.search{border-radius:2px;border-color:#bdcdca;background:#fff}
+.search input{font-size:11px}
+.report-toolbar,.date-filter{background:#f7f9f8;border-bottom:1px solid #e1e8e6}
+.report-toolbar input,.report-toolbar select,.date-filter input{border-radius:2px;border-color:#b9c9c6;background:#fff;min-height:33px}
+.modal,.voucher-modal,.voucher-detail-modal{border-radius:3px}
+.modal input,.modal select{border-radius:2px;border-color:#bdccca}
+.modal h2{color:#15484e}
+.voucher-screen{background:#e8efed}
+.voucher-screen .voucher-modal{background:#f2f5f4}
+.voucher-screen .modal-head{background:#075b63;border-bottom:3px solid #e9bc42}
+.voucher-screen .voucher-toolbar{border-color:#c4d1cf;border-radius:2px}
+.voucher-screen .entry-table-wrap{border-color:#b9c9c6}
+.voucher-screen .entry-table th{background:#dce8e6;color:#244f53}
+.voucher-screen .entry-table tbody tr:hover{background:#fff8e7}
+.voucher-screen .entry-table select:focus,.voucher-screen .entry-table input:focus,.voucher-screen .voucher-toolbar input:focus,.voucher-screen .voucher-toolbar select:focus{outline:2px solid #dcae32;border-color:#b18a28;background:#fffdf4}
+.voucher-screen .shortcut-help{background:#103b43}
+.voucher-screen .shortcut-help span{color:#f4ce68;border-color:#638080}
+.voucher-screen .voucher-actions .primary{background:#08717a}
+.voucher-screen .balanced{color:#14744c}.voucher-screen .unbalanced{color:#a45b17}
+.opening-summary>div,.gst-preview>div{border-radius:2px}
+.opening-amount-input,.opening-side-select{border-radius:2px;border-color:#bdccca}
+.tds-disclaimer{border-radius:2px}
+.tds-form-grid input:not([type=checkbox]),.tds-form-grid select,.tds-form-grid textarea{border-radius:2px}
+.backup-success{border-radius:2px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #e0b13b;outline-offset:1px}
+@media(max-width:900px){.sidebar{width:210px}.page{padding:16px}}
+@media(max-width:620px){.sidebar{width:58px;padding:8px 5px}.brand{justify-content:center;padding:0}.brand>div:last-child,.company-switch span,.company-switch select,.nav-label,.nav-item:not(.active){display:none}.company-switch{justify-content:center;padding:9px 4px}.nav-item{justify-content:center;padding:0;font-size:0}.nav-item svg{width:18px;height:18px}.page{padding:14px 10px}.topbar{padding:0 12px}.page h1{font-size:19px}}
