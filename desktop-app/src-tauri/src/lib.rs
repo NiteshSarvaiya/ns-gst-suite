@@ -36,6 +36,9 @@ struct CompanyUpdate { name:String, financial_year_start:String, financial_year_
 struct NewLedger { name:String, group_name:String, opening_balance:i64, balance_type:String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OpeningBalanceEntry { ledger_id:i64, amount:i64, side:String }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[derive(PartialEq, Eq, Clone)]
 struct VoucherEntry { ledger_id:i64, debit:i64, credit:i64 }
 
@@ -235,6 +238,39 @@ fn get_voucher_detail(app:AppHandle,voucher_id:i64)->Result<VoucherDetail,String
 }
 
 #[tauri::command] fn list_vouchers(app:AppHandle)->Result<Vec<Voucher>,String>{let conn=open_db(&app)?;initialize(&conn)?;let mut s=conn.prepare("SELECT id,voucher_no,voucher_type,voucher_date,narration,total FROM vouchers ORDER BY voucher_date DESC,id DESC").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Voucher{id:r.get(0)?,voucher_no:r.get(1)?,voucher_type:r.get(2)?,voucher_date:r.get(3)?,narration:r.get(4)?,total:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
+
+fn save_opening_balances_tx(tx:&Transaction,entries:&[OpeningBalanceEntry])->Result<(),String>{
+ if entries.len()<2{return Err("Opening balances require at least two ledger entries.".into())}
+ let mut seen=std::collections::HashSet::new();
+ let(mut debit,mut credit)=(0_i64,0_i64);
+ for entry in entries{
+  if entry.ledger_id<=0||entry.amount<0{return Err("Select a valid ledger and enter a non-negative opening amount.".into())}
+  if entry.side!="Dr"&&entry.side!="Cr"{return Err("Opening balance side must be Dr or Cr.".into())}
+  if !seen.insert(entry.ledger_id){return Err("A ledger can appear only once in the opening balance batch.".into())}
+  let exists:i64=tx.query_row("SELECT COUNT(*) FROM ledgers WHERE id=?1",params![entry.ledger_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if exists==0{return Err(format!("Ledger {} does not exist.",entry.ledger_id))}
+  if entry.side=="Dr"{debit=debit.checked_add(entry.amount).ok_or("Opening debit total overflow.")?}
+  else{credit=credit.checked_add(entry.amount).ok_or("Opening credit total overflow.")?}
+ }
+ let ledger_count:i64=tx.query_row("SELECT COUNT(*) FROM ledgers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if ledger_count as usize!=entries.len(){return Err("Include every ledger in the opening balance batch; use zero for ledgers without an opening amount.".into())}
+ if debit==0||debit!=credit{return Err(format!("Opening balances are not balanced. Debit {} paise and credit {} paise must be equal and greater than zero.",debit,credit))}
+ let voucher_count:i64=tx.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if voucher_count>0{return Err("Opening balances are locked after the first voucher. Use an opening adjustment journal instead of changing historical opening figures.".into())}
+ for entry in entries{
+  tx.execute("UPDATE ledgers SET opening_balance=?1,balance_type=?2 WHERE id=?3",params![entry.amount,entry.side,entry.ledger_id]).map_err(|e|e.to_string())?;
+ }
+ write_audit_event(tx,"SET_OPENING_BALANCES","COMPANY","1",&format!("Balanced opening batch posted: debit {} paise, credit {} paise",debit,credit))?;
+ Ok(())
+}
+#[tauri::command]
+fn save_opening_balances(app:AppHandle,entries:Vec<OpeningBalanceEntry>)->Result<(),String>{
+ let mut conn=open_db(&app)?;initialize(&conn)?;
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+ save_opening_balances_tx(&tx,&entries)?;
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(())
+}
 #[tauri::command] fn create_ledger(app:AppHandle,input:NewLedger)->Result<i64,String>{let name=input.name.trim();if name.is_empty(){return Err("Ledger name is required.".into())}if input.group_name.trim().is_empty(){return Err("Select a ledger group.".into())}if input.opening_balance!=0{return Err("Independent opening balances are disabled. Use a balanced opening journal workflow once available.".into())}if input.balance_type!="Dr"&&input.balance_type!="Cr"{return Err("Select Dr or Cr.".into())}let conn=open_db(&app)?;initialize(&conn)?;conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,0,?3)",params![name,input.group_name.trim(),input.balance_type]).map_err(|e|format!("Could not create ledger: {e}"))?;Ok(conn.last_insert_rowid())}
 
 fn is_cash_or_bank_group(group:&str)->bool{
@@ -426,7 +462,7 @@ fn create_backup(app:AppHandle)->Result<String,String>{
 }
 
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,list_gst_sales_invoices,create_gst_sales_invoice,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
+pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,save_opening_balances,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,list_gst_sales_invoices,create_gst_sales_invoice,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
 
 #[cfg(test)]
 mod accounting_validation_tests {
@@ -495,6 +531,49 @@ mod accounting_validation_tests {
   assert_eq!(tds_ledgers,2);
  }
 
+
+ #[test] fn opening_balance_batch_requires_balanced_all_ledger_input(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let ids:Vec<(i64,String)>={
+   let mut s=conn.prepare("SELECT id,name FROM ledgers ORDER BY id").unwrap();
+   s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+  };
+  let cash=ids.iter().find(|(_,n)|n=="Cash").unwrap().0;
+  let capital=ids.iter().find(|(_,n)|n=="Capital Account").unwrap().0;
+  let entries:Vec<OpeningBalanceEntry>=ids.iter().map(|(id,name)|OpeningBalanceEntry{ledger_id:*id,amount:if *id==cash{100000}else if *id==capital{100000}else{0},side:if name=="Capital Account"{"Cr".into()}else{"Dr".into()}}).collect();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  save_opening_balances_tx(&tx,&entries).unwrap();tx.commit().unwrap();
+  let (dr,cr):(i64,i64)=conn.query_row("SELECT SUM(CASE WHEN balance_type='Dr' THEN opening_balance ELSE 0 END),SUM(CASE WHEN balance_type='Cr' THEN opening_balance ELSE 0 END) FROM ledgers",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+  assert_eq!((dr,cr),(100000,100000));
+  let audit:i64=conn.query_row("SELECT COUNT(*) FROM audit_log WHERE event_type='SET_OPENING_BALANCES'",[],|r|r.get(0)).unwrap();assert_eq!(audit,1);
+ }
+ #[test] fn opening_balance_batch_rejects_difference_and_rolls_back(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let ids:Vec<(i64,String)>={
+   let mut s=conn.prepare("SELECT id,name FROM ledgers ORDER BY id").unwrap();
+   s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+  };
+  let cash=ids.iter().find(|(_,n)|n=="Cash").unwrap().0;
+  let capital=ids.iter().find(|(_,n)|n=="Capital Account").unwrap().0;
+  let entries:Vec<OpeningBalanceEntry>=ids.iter().map(|(id,name)|OpeningBalanceEntry{ledger_id:*id,amount:if *id==cash{100000}else if *id==capital{90000}else{0},side:if name=="Capital Account"{"Cr".into()}else{"Dr".into()}}).collect();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  assert!(save_opening_balances_tx(&tx,&entries).is_err());drop(tx);
+  let sum:i64=conn.query_row("SELECT SUM(opening_balance) FROM ledgers",[],|r|r.get(0)).unwrap();assert_eq!(sum,0);
+  let audit:i64=conn.query_row("SELECT COUNT(*) FROM audit_log WHERE event_type='SET_OPENING_BALANCES'",[],|r|r.get(0)).unwrap();assert_eq!(audit,0);
+ }
+ #[test] fn opening_balance_batch_is_locked_after_voucher_posting(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let ids:Vec<(i64,String)>={
+   let mut s=conn.prepare("SELECT id,name FROM ledgers ORDER BY id").unwrap();
+   s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+  };
+  let cash=ids.iter().find(|(_,n)|n=="Cash").unwrap().0;
+  let capital=ids.iter().find(|(_,n)|n=="Capital Account").unwrap().0;
+  let input=manual_voucher("opening-lock-voucher","Journal","2026-11-07","seed",vec![e(cash,10000,0),e(capital,0,10000)]);
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").unwrap();tx.commit().unwrap();
+  let entries:Vec<OpeningBalanceEntry>=ids.iter().map(|(id,name)|OpeningBalanceEntry{ledger_id:*id,amount:if *id==cash{100000}else if *id==capital{100000}else{0},side:if name=="Capital Account"{"Cr".into()}else{"Dr".into()}}).collect();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();assert!(save_opening_balances_tx(&tx,&entries).is_err());drop(tx);
+ }
  #[test] fn core_migration_adds_idempotency_and_append_only_audit_log(){
   let conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
   let has_request=has_column(&conn,"vouchers","request_id").unwrap();
