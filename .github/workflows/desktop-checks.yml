@@ -1,0 +1,44 @@
+name: Desktop app checks
+on:
+  pull_request:
+    branches:
+      - feature/accounting-v1.2-keyboard
+      - feature/accounting-v1.2-reports-company
+  push:
+    branches:
+      - feature/accounting-core-audit
+permissions:
+  contents: read
+jobs:
+  windows-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-app/src-tauri
+      - name: Install frontend dependencies
+        working-directory: desktop-app
+        run: npm install --no-audit --no-fund
+      - name: Frontend typecheck and production build
+        working-directory: desktop-app
+        run: npm run build
+      - name: Rust unit tests
+        run: cargo test --manifest-path desktop-app/src-tauri/Cargo.toml
+      - name: Build Windows MSI installer
+        working-directory: desktop-app
+        run: npm run tauri -- build --bundles msi
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NS-Accounts-Windows-MSI
+          path: desktop-app/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
