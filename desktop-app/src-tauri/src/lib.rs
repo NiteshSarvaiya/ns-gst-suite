@@ -296,7 +296,7 @@ fn post_voucher_tx(tx:&Transaction,input:&NewVoucher,financial_year_start:&str,f
   return Err("Manual vouchers support only Contra, Payment, Receipt and Journal. Sales invoices must be created through GST Sales.".into())
  }
  if input.request_id.trim().is_empty()||input.request_id.len()>128{return Err("A valid posting request ID is required.".into())}
- if !valid_iso_date(&input.voucher_date)||input.voucher_date<financial_year_start||input.voucher_date>financial_year_end{
+ if !valid_iso_date(&input.voucher_date)||input.voucher_date.as_str()<financial_year_start||input.voucher_date.as_str()>financial_year_end{
   return Err(format!("Voucher date must be within the company's financial year ({} to {}).",financial_year_start,financial_year_end))
  }
  let entries=validate_voucher_input(&input.voucher_type,&input.voucher_date,&input.entries)?;
