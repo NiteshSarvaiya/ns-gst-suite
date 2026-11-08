@@ -36,6 +36,7 @@ struct CompanyUpdate { name:String, financial_year_start:String, financial_year_
 struct NewLedger { name:String, group_name:String, opening_balance:i64, balance_type:String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(PartialEq, Eq, Clone)]
 struct VoucherEntry { ledger_id:i64, debit:i64, credit:i64 }
 
 #[derive(Deserialize)]
@@ -49,7 +50,7 @@ struct NewGstSalesInvoice { invoice_date:String, party_ledger_id:i64, party_gsti
 struct GstSalesInvoiceSummary { id:i64, invoice_no:String, invoice_date:String, party_name:String, party_gstin:String, place_of_supply_state:String, supply_type:String, taxable_total:i64, cgst_total:i64, sgst_total:i64, igst_total:i64, cess_total:i64, invoice_total:i64, voucher_id:i64 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct NewVoucher { voucher_type:String, voucher_date:String, narration:String, entries:Vec<VoucherEntry> }
+struct NewVoucher { request_id:String, voucher_type:String, voucher_date:String, narration:String, entries:Vec<VoucherEntry> }
 
 
 fn valid_iso_date(value:&str)->bool {
@@ -104,6 +105,41 @@ fn database_path_in(dir:&Path)->Result<PathBuf,String>{
 }
 fn database_path(app:&AppHandle)->Result<PathBuf,String>{let dir=app_data_dir(app)?;database_path_in(&dir)}
 fn open_db(app:&AppHandle)->Result<Connection,String>{let conn=Connection::open(database_path(app)?).map_err(|e|e.to_string())?;conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;").map_err(|e|e.to_string())?;Ok(conn)}
+
+fn has_column(conn:&Connection,table:&str,column:&str)->Result<bool,String>{
+ let sql=format!("PRAGMA table_info({table})");
+ let mut stmt=conn.prepare(&sql).map_err(|e|e.to_string())?;
+ let rows=stmt.query_map([],|row|row.get::<_,String>(1)).map_err(|e|e.to_string())?;
+ for row in rows{if row.map_err(|e|e.to_string())?==column{return Ok(true)}}
+ Ok(false)
+}
+fn apply_core_migrations(conn:&Connection)->Result<(),String>{
+ if !has_column(conn,"vouchers","request_id")?{
+  conn.execute("ALTER TABLE vouchers ADD COLUMN request_id TEXT",[]).map_err(|e|e.to_string())?;
+ }
+ conn.execute_batch("
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_vouchers_request_id ON vouchers(request_id) WHERE request_id IS NOT NULL AND request_id<>'';
+  CREATE TABLE IF NOT EXISTS audit_log(
+   id INTEGER PRIMARY KEY AUTOINCREMENT,
+   event_type TEXT NOT NULL,
+   entity_type TEXT NOT NULL,
+   entity_id TEXT NOT NULL,
+   description TEXT NOT NULL,
+   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type,entity_id,id);
+  CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+   BEGIN SELECT RAISE(ABORT,'Audit log is append-only'); END;
+  CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+   BEGIN SELECT RAISE(ABORT,'Audit log is append-only'); END;
+ ").map_err(|e|e.to_string())?;
+ conn.execute("INSERT OR IGNORE INTO schema_migrations(version,description) VALUES(3,'Durable voucher idempotency and append-only audit events')",[]).map_err(|e|e.to_string())?;
+ Ok(())
+}
+fn write_audit_event(tx:&Transaction,event_type:&str,entity_type:&str,entity_id:&str,description:&str)->Result<(),String>{
+ tx.execute("INSERT INTO audit_log(event_type,entity_type,entity_id,description) VALUES(?1,?2,?3,?4)",params![event_type,entity_type,entity_id,description]).map_err(|e|e.to_string())?;
+ Ok(())
+}
 fn initialize(conn:&Connection)->Result<(),String>{
  conn.execute_batch(r#"
  CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,description TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -139,6 +175,7 @@ fn initialize(conn:&Connection)->Result<(),String>{
  let count:i64=conn.query_row("SELECT COUNT(*) FROM ledgers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
  if count==0{let seed=[("Cash","Cash-in-Hand",0_i64,"Dr"),("Bank Account","Bank Accounts",0,"Dr"),("Capital Account","Capital Account",0,"Cr"),("Sales","Sales Accounts",0,"Cr"),("Purchase","Purchase Accounts",0,"Dr"),("Output CGST","Duties & Taxes",0,"Cr"),("Output SGST","Duties & Taxes",0,"Cr"),("Output IGST","Duties & Taxes",0,"Cr"),("Input CGST","Duties & Taxes",0,"Dr"),("Input SGST","Duties & Taxes",0,"Dr"),("Input IGST","Duties & Taxes",0,"Dr"),("TDS Payable","Duties & Taxes",0,"Cr"),("TDS Receivable","Duties & Taxes",0,"Dr"),("Sundry Debtors","Sundry Debtors",0,"Dr"),("Sundry Creditors","Sundry Creditors",0,"Cr"),("Office Expenses","Indirect Expenses",0,"Dr")];for(name,group,balance,side)in seed{conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,?3,?4)",params![name,group,balance,side]).map_err(|e|e.to_string())?;}}
  conn.execute("INSERT OR IGNORE INTO ledgers(name,group_name,opening_balance,balance_type) VALUES('Output Cess','Duties & Taxes',0,'Cr')",[]).map_err(|e|e.to_string())?;
+ apply_core_migrations(conn)?;
  Ok(())
 }
 
@@ -198,8 +235,79 @@ fn get_voucher_detail(app:AppHandle,voucher_id:i64)->Result<VoucherDetail,String
 }
 
 #[tauri::command] fn list_vouchers(app:AppHandle)->Result<Vec<Voucher>,String>{let conn=open_db(&app)?;initialize(&conn)?;let mut s=conn.prepare("SELECT id,voucher_no,voucher_type,voucher_date,narration,total FROM vouchers ORDER BY voucher_date DESC,id DESC").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Voucher{id:r.get(0)?,voucher_no:r.get(1)?,voucher_type:r.get(2)?,voucher_date:r.get(3)?,narration:r.get(4)?,total:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
-#[tauri::command] fn create_ledger(app:AppHandle,input:NewLedger)->Result<i64,String>{let name=input.name.trim();if name.is_empty(){return Err("Ledger name is required.".into())}if input.group_name.trim().is_empty(){return Err("Select a ledger group.".into())}if input.opening_balance<0{return Err("Opening balance cannot be negative.".into())}if input.balance_type!="Dr"&&input.balance_type!="Cr"{return Err("Select Dr or Cr.".into())}let conn=open_db(&app)?;initialize(&conn)?;conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,?3,?4)",params![name,input.group_name.trim(),input.opening_balance,input.balance_type]).map_err(|e|format!("Could not create ledger: {e}"))?;Ok(conn.last_insert_rowid())}
-#[tauri::command] fn post_voucher(app:AppHandle,input:NewVoucher)->Result<String,String>{let entries=validate_voucher_input(&input.voucher_type,&input.voucher_date,&input.entries)?;let debit:i64=entries.iter().map(|e|e.debit).sum();let mut conn=open_db(&app)?;initialize(&conn)?;let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;let seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM vouchers",[],|r|r.get(0)).map_err(|e|e.to_string())?;let number=format!("VCH/{seq:06}");tx.execute("INSERT INTO vouchers(voucher_no,voucher_type,voucher_date,narration,total) VALUES(?1,?2,?3,?4,?5)",params![number,input.voucher_type,input.voucher_date,input.narration.trim(),debit]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();for line in &entries{let exists:i64=tx.query_row("SELECT COUNT(*) FROM ledgers WHERE id=?1",params![line.ledger_id],|r|r.get(0)).map_err(|e|e.to_string())?;if exists==0{return Err(format!("Ledger {} does not exist.",line.ledger_id))}tx.execute("INSERT INTO voucher_lines(voucher_id,ledger_id,debit,credit) VALUES(?1,?2,?3,?4)",params![id,line.ledger_id,line.debit,line.credit]).map_err(|e|e.to_string())?;}tx.commit().map_err(|e|e.to_string())?;Ok(number)}
+#[tauri::command] fn create_ledger(app:AppHandle,input:NewLedger)->Result<i64,String>{let name=input.name.trim();if name.is_empty(){return Err("Ledger name is required.".into())}if input.group_name.trim().is_empty(){return Err("Select a ledger group.".into())}if input.opening_balance!=0{return Err("Independent opening balances are disabled. Use a balanced opening journal workflow once available.".into())}if input.balance_type!="Dr"&&input.balance_type!="Cr"{return Err("Select Dr or Cr.".into())}let conn=open_db(&app)?;initialize(&conn)?;conn.execute("INSERT INTO ledgers(name,group_name,opening_balance,balance_type) VALUES(?1,?2,0,?3)",params![name,input.group_name.trim(),input.balance_type]).map_err(|e|format!("Could not create ledger: {e}"))?;Ok(conn.last_insert_rowid())}
+
+fn is_cash_or_bank_group(group:&str)->bool{
+ matches!(group,"Cash-in-Hand"|"Bank Accounts"|"Bank OD A/c"|"Bank Overdraft")
+}
+fn validate_manual_voucher_accounts(tx:&Transaction,kind:&str,entries:&[VoucherEntry])->Result<(),String>{
+ let mut cash_or_bank_debit=false;
+ let mut cash_or_bank_credit=false;
+ for entry in entries{
+  let group:String=tx.query_row("SELECT group_name FROM ledgers WHERE id=?1",params![entry.ledger_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or_else(||format!("Ledger {} does not exist.",entry.ledger_id))?;
+  if is_cash_or_bank_group(&group){
+   cash_or_bank_debit|=entry.debit>0;
+   cash_or_bank_credit|=entry.credit>0;
+  }
+ }
+ match kind{
+  "Contra" if !entries.iter().all(|entry|{
+   tx.query_row("SELECT group_name FROM ledgers WHERE id=?1",params![entry.ledger_id],|r|r.get::<_,String>(0))
+    .map(|group|is_cash_or_bank_group(&group)).unwrap_or(false)
+  })=>Err("Contra vouchers can contain only cash and bank ledgers. Use Payment, Receipt or Journal for other accounts.".into()),
+  "Payment" if !cash_or_bank_credit=>Err("A Payment voucher must credit at least one cash or bank ledger.".into()),
+  "Receipt" if !cash_or_bank_debit=>Err("A Receipt voucher must debit at least one cash or bank ledger.".into()),
+  _=>Ok(())
+ }
+}
+fn post_voucher_tx(tx:&Transaction,input:&NewVoucher,financial_year_start:&str,financial_year_end:&str)->Result<String,String>{
+ if !["Contra","Payment","Receipt","Journal"].contains(&input.voucher_type.as_str()){
+  return Err("Manual vouchers support only Contra, Payment, Receipt and Journal. Sales invoices must be created through GST Sales.".into())
+ }
+ if input.request_id.trim().is_empty()||input.request_id.len()>128{return Err("A valid posting request ID is required.".into())}
+ if !valid_iso_date(&input.voucher_date)||input.voucher_date<financial_year_start||input.voucher_date>financial_year_end{
+  return Err(format!("Voucher date must be within the company's financial year ({} to {}).",financial_year_start,financial_year_end))
+ }
+ let entries=validate_voucher_input(&input.voucher_type,&input.voucher_date,&input.entries)?;
+ let debit=entries.iter().try_fold(0_i64,|total,line|total.checked_add(line.debit).ok_or("Debit total overflow."))?;
+ let narration=input.narration.trim();
+ // A repeat with the same key and same payload returns the original voucher. Reusing
+ // the key with a changed payload is rejected rather than silently returning old data.
+ let existing:Option<(i64,String,String,String,i64)>=tx.query_row(
+  "SELECT id,voucher_no,voucher_type,voucher_date,narration,total FROM vouchers WHERE request_id=?1",
+  params![input.request_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(5)?))
+ ).optional().map_err(|e|e.to_string())?;
+ if let Some((id,number,kind,date,total))=existing{
+  let stored_narration:String=tx.query_row("SELECT narration FROM vouchers WHERE id=?1",params![id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  let mut stmt=tx.prepare("SELECT ledger_id,debit,credit FROM voucher_lines WHERE voucher_id=?1 ORDER BY id").map_err(|e|e.to_string())?;
+  let rows=stmt.query_map(params![id],|r|Ok(VoucherEntry{ledger_id:r.get(0)?,debit:r.get(1)?,credit:r.get(2)?})).map_err(|e|e.to_string())?;
+  let stored=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+  if kind==input.voucher_type&&date==input.voucher_date&&stored_narration==narration&&total==debit&&stored==entries{
+   return Ok(number)
+  }
+  return Err("This posting request ID was already used for a different voucher. Reopen the voucher to create a new request.".into())
+ }
+ validate_manual_voucher_accounts(tx,&input.voucher_type,&entries)?;
+ let seq:i64=tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM vouchers",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let number=format!("VCH/{seq:06}");
+ tx.execute("INSERT INTO vouchers(voucher_no,voucher_type,voucher_date,narration,total,request_id) VALUES(?1,?2,?3,?4,?5,?6)",params![number,input.voucher_type,input.voucher_date,narration,debit,input.request_id]).map_err(|e|e.to_string())?;
+ let id=tx.last_insert_rowid();
+ for line in &entries{
+  tx.execute("INSERT INTO voucher_lines(voucher_id,ledger_id,debit,credit) VALUES(?1,?2,?3,?4)",params![id,line.ledger_id,line.debit,line.credit]).map_err(|e|e.to_string())?;
+ }
+ write_audit_event(tx,"POST","VOUCHER",&id.to_string(),&format!("Posted {} voucher {}",input.voucher_type,number))?;
+ Ok(number)
+}
+#[tauri::command]
+fn post_voucher(app:AppHandle,input:NewVoucher)->Result<String,String>{
+ let mut conn=open_db(&app)?;initialize(&conn)?;
+ let (fy_start,fy_end):(String,String)=conn.query_row("SELECT financial_year_start,financial_year_end FROM company_settings WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+ let number=post_voucher_tx(&tx,&input,&fy_start,&fy_end)?;
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(number)
+}
+
 #[tauri::command]
 fn trial_balance(app:AppHandle,as_of:String)->Result<Vec<TrialBalanceRow>,String>{
  if !valid_iso_date(&as_of){return Err("Enter a valid Trial Balance date.".into())}
@@ -284,6 +392,7 @@ fn post_gst_sales_invoice_tx(tx:&Transaction,input:NewGstSalesInvoice,company:(S
  for entry in &entries{tx.execute("INSERT INTO voucher_lines(voucher_id,ledger_id,debit,credit) VALUES(?1,?2,?3,?4)",params![voucher_id,entry.ledger_id,entry.debit,entry.credit]).map_err(|e|e.to_string())?;}
  tx.execute("INSERT INTO gst_sales_invoices(invoice_no,invoice_date,party_ledger_id,party_name,party_gstin,place_of_supply_state,supply_type,taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![invoice_no,input.invoice_date,input.party_ledger_id,party_name,buyer_gstin,place,supply_type,taxable_total,cgst_total,sgst_total,igst_total,cess_total,invoice_total,voucher_id]).map_err(|e|e.to_string())?;
  let invoice_id=tx.last_insert_rowid();
+ write_audit_event(tx,"CREATE","GST_SALES_INVOICE",&invoice_id.to_string(),&format!("Created GST sales invoice {}",invoice_no))?;
  for (index,(line,calc)) in input.lines.iter().zip(calculations.iter()).enumerate(){
   tx.execute("INSERT INTO gst_sales_invoice_lines(invoice_id,line_no,description,hsn_sac,quantity_milli,unit_price_paise,discount_paise,gst_rate_bps,cess_rate_bps,taxable_value,cgst,sgst,igst,cess,line_total) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![invoice_id,(index+1) as i64,line.description.trim(),line.hsn_sac.trim(),line.quantity_milli,line.unit_price_paise,line.discount_paise,line.gst_rate_bps,line.cess_rate_bps,calc.taxable_value,calc.cgst,calc.sgst,calc.igst,calc.cess,calc.line_total]).map_err(|e|e.to_string())?;
  }
