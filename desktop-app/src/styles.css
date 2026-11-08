@@ -384,3 +384,55 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 /* Compact Windows menu row accommodates the dedicated Functions category */
 .category-button{gap:8px;padding-left:12px;padding-right:12px}
 @media(max-width:900px){.category-menubar{overflow-x:auto}.category-button{white-space:nowrap}}
+
+
+/* Tally + Zoho hybrid dashboard: financial snapshot, task workspaces, and book health */
+.hybrid-dashboard{display:flex;flex-direction:column;gap:19px;min-width:0}
+.welcome-strip{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:19px 22px;background:linear-gradient(110deg,#0c4d55,#126b70);color:#fff;border-radius:3px;box-shadow:0 2px 5px #143f431a}
+.welcome-kicker{font-size:9px;letter-spacing:1.3px;color:#c2ded8;font-weight:700}
+.welcome-strip h2{margin:7px 0 4px;font-size:21px;color:#fff}
+.welcome-strip p{margin:0;color:#c6ddda;font-size:11px}
+.welcome-period{min-width:210px;padding:11px 14px;background:#ffffff12;border:1px solid #ffffff32;border-radius:3px}
+.welcome-period span,.welcome-period small{display:block;color:#c4dedb;font-size:9px}
+.welcome-period b{display:block;margin:5px 0;color:#fff;font-size:12px}
+.overview-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.overview-heading h2{margin:0;color:#17484d;font-size:15px}
+.overview-heading p{margin:3px 0 0;color:#718582;font-size:10px}
+.finance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.finance-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0;min-height:100px;padding:13px 15px;background:#fff;border:1px solid #c6d3d0;border-left:3px solid #0a7880;border-radius:3px;text-align:left;cursor:pointer;color:#173e43;transition:box-shadow .12s,border-color .12s}
+.finance-card:hover{border-color:#08717a;box-shadow:0 3px 12px #12484c18}
+.finance-card>span{font-size:10px;color:#637a79;font-weight:600}
+.finance-card strong{font-size:20px;line-height:1.2;max-width:100%;overflow-wrap:anywhere;color:#123f45;font-variant-numeric:tabular-nums}
+.finance-card small{display:flex;justify-content:space-between;width:100%;margin-top:auto;color:#7a8d8a;font-size:9px}
+.finance-card small b{color:#08717a;font-size:12px}
+.cash-card{border-left-color:#13866f}.bank-card{border-left-color:#3e83a2}.receivable-card{border-left-color:#c28d32}.payable-card{border-left-color:#bd7551}.sales-card{border-left-color:#648c54}.purchase-card{border-left-color:#8a79a8}
+.workspace-section{padding:15px;background:#e1eae8;border:1px solid #c8d5d2;border-radius:3px}
+.workspace-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.workspace-tile{display:flex;align-items:center;gap:10px;min-width:0;padding:11px;background:#fff;border:1px solid #d1dcda;border-radius:3px;text-align:left;color:#17474d;cursor:pointer}
+.workspace-tile:hover{border-color:#0a747c;background:#f8fcfb;box-shadow:0 2px 7px #12484c12}
+.workspace-icon{display:grid;place-items:center;flex:0 0 31px;width:31px;height:31px;background:#e4f0ed;color:#0b6269;border-radius:3px;font-size:10px;font-weight:800}
+.workspace-tile>span:nth-child(2){display:flex;flex-direction:column;gap:3px;min-width:0}
+.workspace-tile b{font-size:10px}
+.workspace-tile small{font-size:9px;color:#728582;white-space:normal}
+.workspace-tile kbd{margin-left:auto;flex:0 0 auto;font-size:8px}
+.dashboard-bottom{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(270px,1fr);gap:12px;align-items:start}
+.dashboard-bottom>.panel{min-width:0;margin:0}
+.dashboard-side-stack{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dashboard-side-stack>.panel{margin:0}
+.health-row{display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid #e6ecea}
+.health-row:last-child{border-bottom:0}
+.health-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%}
+.health-dot.good{background:#27966d}.health-dot.warn{background:#d59a32}
+.health-row>span:nth-child(2){display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.health-row b{font-size:10px;color:#244c50}
+.health-row small{font-size:9px;color:#748783}
+.health-row button{padding:5px 7px;background:#edf4f2;border:1px solid #d3e0dc;border-radius:2px;color:#075b63;font-size:9px;cursor:pointer}
+.snapshot-row{display:flex;justify-content:space-between;padding:8px 13px;border-bottom:1px solid #e6ecea;color:#687e7c;font-size:10px}
+.snapshot-row:last-child{border-bottom:0}
+.snapshot-row b{color:#17474d;font-variant-numeric:tabular-nums}
+.dashboard-footer-hint{display:flex;align-items:center;gap:10px;padding:10px 13px;background:#f2f6f5;border:1px solid #d1ddda;border-radius:3px;color:#987222}
+.dashboard-footer-hint span{display:flex;flex-direction:column;gap:3px}
+.dashboard-footer-hint b{font-size:10px;color:#294e50}
+.dashboard-footer-hint small{font-size:9px;color:#718481}
+@media(max-width:1050px){.finance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-bottom{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:650px){.welcome-strip{align-items:stretch;flex-direction:column;padding:15px}.welcome-period{min-width:0}.finance-grid,.workspace-grid{grid-template-columns:minmax(0,1fr)}.overview-heading{align-items:flex-start}.main>.page{padding:13px 10px}.finance-card{min-height:90px}}
