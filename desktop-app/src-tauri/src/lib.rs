@@ -42,6 +42,21 @@ struct OpeningBalanceEntry { ledger_id:i64, amount:i64, side:String }
 #[derive(PartialEq, Eq, Clone)]
 struct VoucherEntry { ledger_id:i64, debit:i64, credit:i64 }
 
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TdsRuleInput {
+ id:Option<i64>,section_code:String,nature_of_payment:String,description:String,
+ rate_bps:i64,no_pan_rate_bps:Option<i64>,threshold_paise:i64,threshold_basis:String,
+ effective_from:String,effective_to:Option<String>,source_reference:String,notes:String,is_active:bool
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TdsRule {
+ id:i64,section_code:String,nature_of_payment:String,description:String,
+ rate_bps:i64,no_pan_rate_bps:Option<i64>,threshold_paise:i64,threshold_basis:String,
+ effective_from:String,effective_to:Option<String>,source_reference:String,notes:String,is_active:bool
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GstInvoiceLineInput { description:String, hsn_sac:String, quantity_milli:i64, unit_price_paise:i64, discount_paise:i64, gst_rate_bps:i64, cess_rate_bps:i64 }
@@ -136,7 +151,29 @@ fn apply_core_migrations(conn:&Connection)->Result<(),String>{
   CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
    BEGIN SELECT RAISE(ABORT,'Audit log is append-only'); END;
  ").map_err(|e|e.to_string())?;
- conn.execute("INSERT OR IGNORE INTO schema_migrations(version,description) VALUES(3,'Durable voucher idempotency and append-only audit events')",[]).map_err(|e|e.to_string())?;
+
+ conn.execute_batch("
+  CREATE TABLE IF NOT EXISTS tds_rules(
+   id INTEGER PRIMARY KEY AUTOINCREMENT,
+   section_code TEXT NOT NULL,
+   nature_of_payment TEXT NOT NULL,
+   description TEXT NOT NULL,
+   rate_bps INTEGER NOT NULL CHECK(rate_bps BETWEEN 0 AND 10000),
+   no_pan_rate_bps INTEGER CHECK(no_pan_rate_bps BETWEEN 0 AND 10000),
+   threshold_paise INTEGER NOT NULL DEFAULT 0 CHECK(threshold_paise>=0),
+   threshold_basis TEXT NOT NULL CHECK(threshold_basis IN ('PerPayment','AnnualAggregate','NoThreshold')),
+   effective_from TEXT NOT NULL,
+   effective_to TEXT,
+   source_reference TEXT NOT NULL,
+   notes TEXT NOT NULL DEFAULT '',
+   is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   UNIQUE(section_code,nature_of_payment,effective_from)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tds_rules_lookup ON tds_rules(section_code,nature_of_payment,effective_from,effective_to,is_active);
+ ").map_err(|e|e.to_string())?;
+ conn.execute("INSERT OR IGNORE INTO schema_migrations(version,description) VALUES(4,'Effective-dated configurable TDS rule master')",[]).map_err(|e|e.to_string())?;
  Ok(())
 }
 fn write_audit_event(tx:&Transaction,event_type:&str,entity_type:&str,entity_id:&str,description:&str)->Result<(),String>{
@@ -366,6 +403,58 @@ fn validate_gstin(value:&str)->bool{
  let v=value.trim().to_ascii_uppercase();
  v.len()==15 && v.chars().take(2).all(|c|c.is_ascii_digit()) && v.chars().all(|c|c.is_ascii_alphanumeric())
 }
+
+fn validate_tds_rule(input:&TdsRuleInput)->Result<(String,String,String,String,String),String>{
+ let section=input.section_code.trim().to_ascii_uppercase();
+ if section.is_empty()||section.len()>10||!section.chars().all(|c|c.is_ascii_alphanumeric()){return Err("Enter a valid TDS section code (letters and numbers only, up to 10 characters).".into())}
+ let nature=input.nature_of_payment.trim();
+ if nature.is_empty(){return Err("Nature of payment is required.".into())}
+ if input.description.trim().is_empty(){return Err("Rule description is required.".into())}
+ if !(0..=10000).contains(&input.rate_bps){return Err("TDS rate must be between 0% and 100%.".into())}
+ if input.no_pan_rate_bps.is_some_and(|rate|!(0..=10000).contains(&rate)){return Err("The configured no-PAN rate must be between 0% and 100%.".into())}
+ if input.threshold_paise<0{return Err("Threshold cannot be negative.".into())}
+ if !["PerPayment","AnnualAggregate","NoThreshold"].contains(&input.threshold_basis.as_str()){return Err("Select a supported threshold method.".into())}
+ if !valid_iso_date(&input.effective_from){return Err("Enter a valid effective-from date.".into())}
+ let end=input.effective_to.as_deref().unwrap_or("").trim().to_string();
+ if !end.is_empty()&&(!valid_iso_date(&end)||end<input.effective_from){return Err("Effective-to date must be a valid date on or after effective-from.".into())}
+ let source=input.source_reference.trim();
+ if source.is_empty(){return Err("A legal or official source reference is required for every TDS rule.".into())}
+ Ok((section,nature.to_string(),end,source.to_string(),input.notes.trim().to_string()))
+}
+#[tauri::command]
+fn list_tds_rules(app:AppHandle)->Result<Vec<TdsRule>,String>{
+ let conn=open_db(&app)?;initialize(&conn)?;
+ let mut stmt=conn.prepare("SELECT id,section_code,nature_of_payment,description,rate_bps,no_pan_rate_bps,threshold_paise,threshold_basis,effective_from,effective_to,source_reference,notes,is_active FROM tds_rules ORDER BY section_code,nature_of_payment,effective_from DESC").map_err(|e|e.to_string())?;
+ let rows=stmt.query_map([],|r|Ok(TdsRule{id:r.get(0)?,section_code:r.get(1)?,nature_of_payment:r.get(2)?,description:r.get(3)?,rate_bps:r.get(4)?,no_pan_rate_bps:r.get(5)?,threshold_paise:r.get(6)?,threshold_basis:r.get(7)?,effective_from:r.get(8)?,effective_to:r.get(9)?,source_reference:r.get(10)?,notes:r.get(11)?,is_active:r.get::<_,i64>(12)?!=0})).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
+fn save_tds_rule_tx(tx:&Transaction,input:TdsRuleInput)->Result<i64,String>{
+ let (section,nature,end,source,notes)=validate_tds_rule(&input)?;
+ let overlaps:i64=tx.query_row(
+  "SELECT COUNT(*) FROM tds_rules WHERE section_code=?1 COLLATE NOCASE AND nature_of_payment=?2 COLLATE NOCASE AND (?3 IS NULL OR effective_to IS NULL OR effective_to>=?3) AND (?4 IS NULL OR ?4>=effective_from) AND (?5 IS NULL OR id<>?5)",
+  params![section,nature,if end.is_empty(){None::<String>}else{Some(end.clone())},input.effective_from,input.id],
+  |r|r.get(0)
+ ).map_err(|e|e.to_string())?;
+ if overlaps>0{return Err("This section and nature already have a rule whose effective period overlaps. Close the earlier rule or choose non-overlapping dates.".into())}
+ let end_value=if end.is_empty(){None::<String>}else{Some(end)};
+ let id=if let Some(id)=input.id{
+  let changed=tx.execute("UPDATE tds_rules SET section_code=?1,nature_of_payment=?2,description=?3,rate_bps=?4,no_pan_rate_bps=?5,threshold_paise=?6,threshold_basis=?7,effective_from=?8,effective_to=?9,source_reference=?10,notes=?11,is_active=?12,updated_at=CURRENT_TIMESTAMP WHERE id=?13",params![section,nature,input.description.trim(),input.rate_bps,input.no_pan_rate_bps,input.threshold_paise,input.threshold_basis,input.effective_from,end_value,source,notes,input.is_active as i64,id]).map_err(|e|e.to_string())?;
+  if changed!=1{return Err("TDS rule not found.".into())}id
+ }else{
+  tx.execute("INSERT INTO tds_rules(section_code,nature_of_payment,description,rate_bps,no_pan_rate_bps,threshold_paise,threshold_basis,effective_from,effective_to,source_reference,notes,is_active) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",params![section,nature,input.description.trim(),input.rate_bps,input.no_pan_rate_bps,input.threshold_paise,input.threshold_basis,input.effective_from,end_value,source,notes,input.is_active as i64]).map_err(|e|format!("Could not save TDS rule: {e}"))?;
+  tx.last_insert_rowid()
+ };
+ write_audit_event(tx,if input.id.is_some(){"UPDATE"}else{"CREATE"},"TDS_RULE",&id.to_string(),&format!("{} TDS rule {} for {}",if input.id.is_some(){"Updated"}else{"Created"},section,nature))?;
+ Ok(id)
+}
+#[tauri::command]
+fn save_tds_rule(app:AppHandle,input:TdsRuleInput)->Result<i64,String>{
+ let mut conn=open_db(&app)?;initialize(&conn)?;
+ let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+ let id=save_tds_rule_tx(&tx,input)?;
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(id)
+}
 #[tauri::command]
 fn list_gst_sales_invoices(app:AppHandle)->Result<Vec<GstSalesInvoiceSummary>,String>{
  let conn=open_db(&app)?;initialize(&conn)?;
@@ -462,7 +551,7 @@ fn create_backup(app:AppHandle)->Result<String,String>{
 }
 
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,save_opening_balances,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,list_gst_sales_invoices,create_gst_sales_invoice,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
+pub fn run(){tauri::Builder::default().invoke_handler(tauri::generate_handler![init_db,list_companies,switch_company,create_company,get_company,update_company,list_ledgers,save_opening_balances,list_vouchers,get_voucher_detail,create_ledger,post_voucher,trial_balance,opening_balance_status,ledger_statement,profit_loss,balance_sheet,list_tds_rules,save_tds_rule,list_gst_sales_invoices,create_gst_sales_invoice,create_backup]).run(tauri::generate_context!()).expect("error while running NS Accounts");}
 
 #[cfg(test)]
 mod accounting_validation_tests {
