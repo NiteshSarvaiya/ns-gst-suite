@@ -241,20 +241,15 @@ fn is_cash_or_bank_group(group:&str)->bool{
  matches!(group,"Cash-in-Hand"|"Bank Accounts"|"Bank OD A/c"|"Bank Overdraft")
 }
 fn validate_manual_voucher_accounts(tx:&Transaction,kind:&str,entries:&[VoucherEntry])->Result<(),String>{
- let mut cash_or_bank_debit=false;
- let mut cash_or_bank_credit=false;
+ let(mut cash_or_bank_debit,mut cash_or_bank_credit,mut all_cash_or_bank)=(false,false,true);
  for entry in entries{
   let group:String=tx.query_row("SELECT group_name FROM ledgers WHERE id=?1",params![entry.ledger_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.ok_or_else(||format!("Ledger {} does not exist.",entry.ledger_id))?;
-  if is_cash_or_bank_group(&group){
-   cash_or_bank_debit|=entry.debit>0;
-   cash_or_bank_credit|=entry.credit>0;
-  }
+  let cash_or_bank=is_cash_or_bank_group(&group);
+  all_cash_or_bank&=cash_or_bank;
+  if cash_or_bank{cash_or_bank_debit|=entry.debit>0;cash_or_bank_credit|=entry.credit>0;}
  }
  match kind{
-  "Contra" if !entries.iter().all(|entry|{
-   tx.query_row("SELECT group_name FROM ledgers WHERE id=?1",params![entry.ledger_id],|r|r.get::<_,String>(0))
-    .map(|group|is_cash_or_bank_group(&group)).unwrap_or(false)
-  })=>Err("Contra vouchers can contain only cash and bank ledgers. Use Payment, Receipt or Journal for other accounts.".into()),
+  "Contra" if !all_cash_or_bank=>Err("Contra vouchers can contain only cash and bank ledgers. Use Payment, Receipt or Journal for other accounts.".into()),
   "Payment" if !cash_or_bank_credit=>Err("A Payment voucher must credit at least one cash or bank ledger.".into()),
   "Receipt" if !cash_or_bank_debit=>Err("A Receipt voucher must debit at least one cash or bank ledger.".into()),
   _=>Ok(())
@@ -496,8 +491,76 @@ mod accounting_validation_tests {
   let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
   let tds_ledgers:i64=conn.query_row("SELECT COUNT(*) FROM ledgers WHERE name IN ('TDS Payable','TDS Receivable')",[],|r|r.get(0)).unwrap();
   assert_eq!((debit,credit),(0,0));
-  assert_eq!(version,2);
+  assert_eq!(version,3);
   assert_eq!(tds_ledgers,2);
+ }
+
+ #[test] fn core_migration_adds_idempotency_and_append_only_audit_log(){
+  let conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let has_request=has_column(&conn,"vouchers","request_id").unwrap();
+  let audit_table:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_log'",[],|r|r.get(0)).unwrap();
+  let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
+  assert!(has_request);assert_eq!(audit_table,1);assert_eq!(version,3);
+  conn.execute("INSERT INTO audit_log(event_type,entity_type,entity_id,description) VALUES('TEST','VOUCHER','1','test')",[]).unwrap();
+  assert!(conn.execute("UPDATE audit_log SET description='changed' WHERE id=1",[]).is_err());
+  assert!(conn.execute("DELETE FROM audit_log WHERE id=1",[]).is_err());
+ }
+ fn manual_voucher(request_id:&str,kind:&str,date:&str,narration:&str,entries:Vec<VoucherEntry>)->NewVoucher{
+  NewVoucher{request_id:request_id.into(),voucher_type:kind.into(),voucher_date:date.into(),narration:narration.into(),entries}
+ }
+ #[test] fn manual_voucher_rejects_internal_sales_type(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  let input=manual_voucher("manual-sales","Sales","2026-11-07","not an invoice",vec![e(1,10000,0),e(2,0,10000)]);
+  let result=post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31");
+  assert!(result.is_err());drop(tx);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();assert_eq!(count,0);
+ }
+ #[test] fn manual_voucher_rejects_dates_outside_company_financial_year(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let cash:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Cash'",[],|r|r.get(0)).unwrap();
+  let capital:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Capital Account'",[],|r|r.get(0)).unwrap();
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  let input=manual_voucher("out-of-year","Journal","2025-03-31","old year",vec![e(cash,10000,0),e(capital,0,10000)]);
+  assert!(post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").is_err());drop(tx);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();assert_eq!(count,0);
+ }
+ #[test] fn manual_voucher_posting_is_durably_idempotent_and_audited(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let cash:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Cash'",[],|r|r.get(0)).unwrap();
+  let capital:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Capital Account'",[],|r|r.get(0)).unwrap();
+  let input=manual_voucher("stable-request-001","Journal","2026-11-07","Capital introduced",vec![e(cash,100000,0),e(capital,0,100000)]);
+  let first={let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();let n=post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").unwrap();tx.commit().unwrap();n};
+  let second={let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();let n=post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").unwrap();tx.commit().unwrap();n};
+  assert_eq!(first,second);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();
+  let audit:i64=conn.query_row("SELECT COUNT(*) FROM audit_log WHERE entity_type='VOUCHER'",[],|r|r.get(0)).unwrap();
+  assert_eq!((count,audit),(1,1));
+  let changed=manual_voucher("stable-request-001","Journal","2026-11-07","Different narration",vec![e(cash,100000,0),e(capital,0,100000)]);
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  assert!(post_voucher_tx(&tx,&changed,"2026-04-01","2027-03-31").is_err());drop(tx);
+  let final_count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();assert_eq!(final_count,1);
+ }
+ #[test] fn payment_receipt_and_contra_enforce_cash_bank_sides(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let cash:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Cash'",[],|r|r.get(0)).unwrap();
+  let bank:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Bank Account'",[],|r|r.get(0)).unwrap();
+  let office:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Office Expenses'",[],|r|r.get(0)).unwrap();
+  let sales:i64=conn.query_row("SELECT id FROM ledgers WHERE name='Sales'",[],|r|r.get(0)).unwrap();
+  let valid_payment=manual_voucher("payment-1","Payment","2026-11-07","Office paid",vec![e(office,10000,0),e(cash,0,10000)]);
+  let valid_receipt=manual_voucher("receipt-1","Receipt","2026-11-07","Cash sale",vec![e(cash,10000,0),e(sales,0,10000)]);
+  let valid_contra=manual_voucher("contra-1","Contra","2026-11-07","Cash deposited",vec![e(bank,10000,0),e(cash,0,10000)]);
+  let invalid_payment=manual_voucher("payment-2","Payment","2026-11-07","Wrong side",vec![e(cash,10000,0),e(office,0,10000)]);
+  let invalid_contra=manual_voucher("contra-2","Contra","2026-11-07","Expense line",vec![e(bank,10000,0),e(office,0,10000)]);
+  for input in [valid_payment,valid_receipt,valid_contra]{
+   let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+   post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").unwrap();tx.commit().unwrap();
+  }
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  assert!(post_voucher_tx(&tx,&invalid_payment,"2026-04-01","2027-03-31").is_err());drop(tx);
+  let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+  assert!(post_voucher_tx(&tx,&invalid_contra,"2026-04-01","2027-03-31").is_err());drop(tx);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM vouchers",[],|r|r.get(0)).unwrap();assert_eq!(count,3);
  }
  #[test] fn sqlite_backup_api_creates_a_consistent_copy(){
   let source=Connection::open_in_memory().unwrap();
