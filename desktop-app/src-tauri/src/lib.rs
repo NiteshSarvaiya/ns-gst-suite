@@ -431,7 +431,7 @@ fn list_tds_rules(app:AppHandle)->Result<Vec<TdsRule>,String>{
 fn save_tds_rule_tx(tx:&Transaction,input:TdsRuleInput)->Result<i64,String>{
  let (section,nature,end,source,notes)=validate_tds_rule(&input)?;
  let overlaps:i64=tx.query_row(
-  "SELECT COUNT(*) FROM tds_rules WHERE section_code=?1 COLLATE NOCASE AND nature_of_payment=?2 COLLATE NOCASE AND (?3 IS NULL OR effective_to IS NULL OR effective_to>=?3) AND (?4 IS NULL OR ?4>=effective_from) AND (?5 IS NULL OR id<>?5)",
+  "SELECT COUNT(*) FROM tds_rules WHERE section_code=?1 COLLATE NOCASE AND nature_of_payment=?2 COLLATE NOCASE AND (effective_to IS NULL OR effective_to>=?4) AND (?3 IS NULL OR ?3>=effective_from) AND (?5 IS NULL OR id<>?5)",
   params![section,nature,if end.is_empty(){None::<String>}else{Some(end.clone())},input.effective_from,input.id],
   |r|r.get(0)
  ).map_err(|e|e.to_string())?;
@@ -616,7 +616,7 @@ mod accounting_validation_tests {
   let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
   let tds_ledgers:i64=conn.query_row("SELECT COUNT(*) FROM ledgers WHERE name IN ('TDS Payable','TDS Receivable')",[],|r|r.get(0)).unwrap();
   assert_eq!((debit,credit),(0,0));
-  assert_eq!(version,3);
+  assert_eq!(version,4);
   assert_eq!(tds_ledgers,2);
  }
 
@@ -662,6 +662,35 @@ mod accounting_validation_tests {
   let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();post_voucher_tx(&tx,&input,"2026-04-01","2027-03-31").unwrap();tx.commit().unwrap();
   let entries:Vec<OpeningBalanceEntry>=ids.iter().map(|(id,name)|OpeningBalanceEntry{ledger_id:*id,amount:if *id==cash{100000}else if *id==capital{100000}else{0},side:if name=="Capital Account"{"Cr".into()}else{"Dr".into()}}).collect();
   let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();assert!(save_opening_balances_tx(&tx,&entries).is_err());drop(tx);
+ }
+
+ #[test] fn tds_rule_schema_is_created_and_versioned(){
+  let conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tds_rules'",[],|r|r.get(0)).unwrap();
+  let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
+  assert_eq!((count,version),(1,4));
+ }
+ fn tds_rule(id:Option<i64>,from:&str,to:Option<&str>)->TdsRuleInput{
+  TdsRuleInput{id,section_code:"194C".into(),nature_of_payment:"Contract payments".into(),description:"User-maintained rule".into(),rate_bps:100,no_pan_rate_bps:None,threshold_paise:100000,threshold_basis:"AnnualAggregate".into(),effective_from:from.into(),effective_to:to.map(str::to_string),source_reference:"Verified official source reference".into(),notes:"Reviewed for this effective period".into(),is_active:true}
+ }
+ #[test] fn tds_rule_requires_source_and_valid_rates_and_dates(){
+  let mut input=tds_rule(None,"2026-04-01",None);
+  input.source_reference=" ".into();assert!(validate_tds_rule(&input).is_err());
+  let mut input=tds_rule(None,"2026-04-01",None);input.rate_bps=10001;assert!(validate_tds_rule(&input).is_err());
+  let input=tds_rule(None,"2026-04-01",Some("2026-03-31"));assert!(validate_tds_rule(&input).is_err());
+  let input=tds_rule(None,"2026-04-01",Some("2027-03-31"));assert!(validate_tds_rule(&input).is_ok());
+ }
+ #[test] fn tds_rule_effective_periods_reject_overlap_but_allow_adjacent_ranges(){
+  let mut conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
+  let first={let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();let id=save_tds_rule_tx(&tx,tds_rule(None,"2026-04-01",Some("2026-12-31"))).unwrap();tx.commit().unwrap();id};
+  {
+   let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+   assert!(save_tds_rule_tx(&tx,tds_rule(None,"2026-10-01",None)).is_err());drop(tx);
+  }
+  let second={let tx=conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();let id=save_tds_rule_tx(&tx,tds_rule(None,"2027-01-01",None)).unwrap();tx.commit().unwrap();id};
+  assert!(second>first);
+  let count:i64=conn.query_row("SELECT COUNT(*) FROM tds_rules WHERE section_code='194C'",[],|r|r.get(0)).unwrap();assert_eq!(count,2);
+  let audit:i64=conn.query_row("SELECT COUNT(*) FROM audit_log WHERE entity_type='TDS_RULE'",[],|r|r.get(0)).unwrap();assert_eq!(audit,2);
  }
  #[test] fn core_migration_adds_idempotency_and_append_only_audit_log(){
   let conn=Connection::open_in_memory().unwrap();initialize(&conn).unwrap();
