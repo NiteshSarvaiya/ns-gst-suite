@@ -697,7 +697,7 @@ mod accounting_validation_tests {
   let has_request=has_column(&conn,"vouchers","request_id").unwrap();
   let audit_table:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_log'",[],|r|r.get(0)).unwrap();
   let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
-  assert!(has_request);assert_eq!(audit_table,1);assert_eq!(version,3);
+  assert!(has_request);assert_eq!(audit_table,1);assert_eq!(version,4);
   conn.execute("INSERT INTO audit_log(event_type,entity_type,entity_id,description) VALUES('TEST','VOUCHER','1','test')",[]).unwrap();
   assert!(conn.execute("UPDATE audit_log SET description='changed' WHERE id=1",[]).is_err());
   assert!(conn.execute("DELETE FROM audit_log WHERE id=1",[]).is_err());
