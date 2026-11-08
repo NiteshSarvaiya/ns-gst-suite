@@ -380,3 +380,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .voucher-register-actions .primary{white-space:nowrap}
 @media(max-width:800px){.desktop-header{gap:9px;padding:0 10px}.desktop-brand{min-width:135px}.desktop-company{padding:6px}.desktop-company select{max-width:130px}.category-menubar{padding:0 5px;overflow:visible}.category-button{gap:5px;padding:0 9px;font-size:10px}.category-button kbd{display:none}.main>.page{padding:14px 12px}.context-strip{padding:7px 12px}}
 @media(max-width:560px){.desktop-brand{min-width:auto}.desktop-brand small,.desktop-status,.desktop-company small{display:none}.desktop-company{margin-left:auto}.category-menubar{overflow-x:auto}.category-button{white-space:nowrap}.context-hint{display:none}.voucher-register-actions{width:100%}.voucher-register-actions .search{flex:1;min-width:130px}}
+
+/* Compact Windows menu row accommodates the dedicated Functions category */
+.category-button{gap:8px;padding-left:12px;padding-right:12px}
+@media(max-width:900px){.category-menubar{overflow-x:auto}.category-button{white-space:nowrap}}
