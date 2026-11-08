@@ -89,14 +89,6 @@ export default function App(){
  <div className="page-heading"><div><p className="eyebrow">NS ACCOUNTS · DESKTOP EDITION</p><h1>{view==="Dashboard"?"Company Overview":view}</h1><p className="subheading">{view==="Dashboard"?"Financial position, activity and frequently used accounting functions.":view==="Vouchers"?"Record and review accounting transactions.":view==="Ledgers"?"Maintain the company chart of accounts.":"Company books and accounting information."}</p></div></div>
  {error&&!showEntry&&!showLedger&&!showGstInvoice&&<div className="error">{error}</div>}
  {view==="Dashboard"&&<div className="tally-dashboard">
- <div className="dashboard-commandbar" aria-label="Quick accounting actions">
-  <button onClick={()=>openVoucher("Contra")}><kbd>F4</kbd><span>Contra</span></button>
-  <button onClick={()=>openVoucher("Payment")}><kbd>F5</kbd><span>Payment</span></button>
-  <button onClick={()=>openVoucher("Receipt")}><kbd>F6</kbd><span>Receipt</span></button>
-  <button onClick={()=>openVoucher("Journal")}><kbd>F7</kbd><span>Journal</span></button>
-  <button onClick={()=>setView("GST Sales")}><kbd>GST</kbd><span>Sales invoice</span></button>
-  <button onClick={()=>setView("Ledgers")}><kbd>Alt+L</kbd><span>Chart of accounts</span></button>
- </div>
  <div className="stats">
   <Stat icon={<Wallet/>} label="Trial balance · Debit" value={money(totalDr)} hint="Open Trial Balance" onClick={()=>setView("Trial Balance")}/>
   <Stat icon={<Activity/>} label="Trial balance · Credit" value={money(totalCr)} hint="Open Trial Balance" onClick={()=>setView("Trial Balance")}/>
