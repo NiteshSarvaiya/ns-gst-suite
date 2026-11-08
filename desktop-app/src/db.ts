@@ -5,6 +5,7 @@ export type VoucherLineDetail={ledgerId:number;ledgerName:string;debit:number;cr
 export type VoucherDetail={id:number;voucherNo:string;voucherType:string;voucherDate:string;narration:string;total:number;lines:VoucherLineDetail[]};
 export type TrialBalanceRow={id:number;name:string;groupName:string;debit:number;credit:number};
 export type OpeningBalanceStatus={debitTotal:number;creditTotal:number;difference:number};
+export type OpeningBalanceEntry={ledgerId:number;amount:number;side:"Dr"|"Cr"};
 export type Entry={ledgerId:number;debit:number;credit:number};
 export type NewVoucher={requestId:string;voucherType:string;voucherDate:string;narration:string;entries:Entry[]};
 export type CompanySummary={id:string;name:string;isActive:boolean};
@@ -27,6 +28,7 @@ export const getVouchers=()=>invoke<Voucher[]>("list_vouchers");
 export const getVoucherDetail=(voucherId:number)=>invoke<VoucherDetail>("get_voucher_detail",{voucherId});
 export const getTrialBalance=(asOf:string)=>invoke<TrialBalanceRow[]>("trial_balance",{asOf});
 export const getOpeningBalanceStatus=()=>invoke<OpeningBalanceStatus>("opening_balance_status");
+export const saveOpeningBalances=(entries:OpeningBalanceEntry[])=>invoke<void>("save_opening_balances",{entries});
 export const getLedgerStatement=(ledgerId:number,fromDate:string,toDate:string)=>invoke<StatementRow[]>("ledger_statement",{ledgerId,fromDate,toDate});
 export const getProfitLoss=(fromDate:string,toDate:string)=>invoke<GroupBalance[]>("profit_loss",{fromDate,toDate});
 export const getBalanceSheet=(asOf:string)=>invoke<GroupBalance[]>("balance_sheet",{asOf});
