@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Activity, BookOpen, Building2, FileText, LayoutDashboard, Plus, ReceiptIndianRupee, Search, ShieldCheck, Wallet, X, Trash2, CalendarDays, BarChart3, Settings, ListTree } from "lucide-react";
+import { Building2, Plus, Search, ShieldCheck, X, Trash2, Settings } from "lucide-react";
 import { connectDb, createLedger, getLedgers, getVouchers, getTrialBalance, postVoucher, getCompany, updateCompany, getLedgerStatement, getProfitLoss, getBalanceSheet, getVoucherDetail, getOpeningBalanceStatus, createBackup, getCompanies, switchCompany, createCompany, getGstSalesInvoices, createGstSalesInvoice, getTdsRules, saveTdsRule, saveOpeningBalances, type GstSalesInvoice, type GstInvoiceLineInput, type TdsRule, type TdsRuleInput, type OpeningBalanceEntry, type CompanySummary, type OpeningBalanceStatus, type Ledger, type Voucher, type VoucherDetail, type TrialBalanceRow, type CompanyInfo, type StatementRow, type GroupBalance } from "./db";
 
 const money=(paise:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",minimumFractionDigits:2}).format(paise/100);
