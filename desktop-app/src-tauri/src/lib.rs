@@ -590,7 +590,7 @@ mod accounting_validation_tests {
   let line_table:i64=conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='gst_sales_invoice_lines'",[],|r|r.get(0)).unwrap();
   let version:i64=conn.query_row("SELECT MAX(version) FROM schema_migrations",[],|r|r.get(0)).unwrap();
   let cess_ledger:i64=conn.query_row("SELECT COUNT(*) FROM ledgers WHERE name='Output Cess'",[],|r|r.get(0)).unwrap();
-  assert_eq!((invoice_table,line_table,version,cess_ledger),(1,1,2,1));
+  assert_eq!((invoice_table,line_table,version,cess_ledger),(1,1,4,1));
  }
  #[test] fn company_registry_preserves_existing_database_and_separates_new_company_files(){
   let stamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
